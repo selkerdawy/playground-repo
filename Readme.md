@@ -1,1 +1,1 @@
-python main.py -i grumpy.jpg -d 1 -s 2 
+python main.py -i grumpy.jpg -d 0 -s 1 -a vgg11
