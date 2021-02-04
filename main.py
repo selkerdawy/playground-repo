@@ -1,3 +1,4 @@
+import argparse
 import sys
 import os
 import torch
@@ -10,9 +11,6 @@ from torch.autograd import Variable
 from PIL import Image
 import pdb
 
-os.environ['CUDA_VISIBLE_DEVICES'] = sys.argv[2]
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
 normalize = transforms.Normalize(
    mean=[0.485, 0.456, 0.406],
    std=[0.229, 0.224, 0.225]
@@ -23,6 +21,17 @@ preprocess = transforms.Compose([
    transforms.ToTensor(),
    normalize
 ])
+
+
+parser = argparse.ArgumentParser(description='Effect of stride testing')
+parser.add_argument('-i', '--image', help='path to image')
+parser.add_argument('-d', '--device', type=int, help='-1 for cpu, positive for gpu_id')
+parser.add_argument('-s', '--scale', type=int, help='scale factor to multiply by stride for each conv')
+
+args = parser.parse_args()
+
+os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
+device = "cuda" if torch.cuda.is_available() and args.device > 0 else "cpu"
 
 def image_loader(image_name):
     """load image, returns cuda tensor"""
@@ -37,18 +46,26 @@ def map_classid_to_label(classid):
 
 def add_upsample(model):
 
+    def print_mean(m, i, o):
+        print(m.__class__.__name__, ' ----> Mean: ', nn.AdaptiveAvgPool2d(1) (o).squeeze().mean())
+
     nw_sq = []
     for layer in model.features.children():
         if isinstance(layer, nn.Conv2d):
-            layer.stride = [x * 2 for x in layer.stride]
-            nw_sq += [layer, nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)]
+            scale_factor = args.scale
+            layer.stride = [x * scale_factor for x in layer.stride]
+            layer.register_forward_hook(print_mean)
+            mode = 'bicubic' #'bilinear'
+            upsample = nn.Upsample(scale_factor=scale_factor, mode=mode, align_corners=True)
+            nw_sq += [layer, upsample]
+            upsample.register_forward_hook(print_mean)
         else:
             nw_sq += [layer]
 
     model.features = nn.Sequential(*nw_sq)
 
 def main():
-    image = image_loader(sys.argv[1]) #Image filename
+    image = image_loader(args.image) #Image filename
 
     model = models.vgg11_bn(pretrained=True)
     #print(model)
