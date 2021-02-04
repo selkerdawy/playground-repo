@@ -1,1 +1,1 @@
-ython main.py -i grumpy.jpg -d 1 -s 2
+python main.py -i grumpy.jpg -d 1 -s 2 
