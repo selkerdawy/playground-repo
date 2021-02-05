@@ -285,10 +285,11 @@ def main_worker(gpu, ngpus_per_node, args):
             for epoch in range(args.start_epoch, args.epochs):
                 if args.distributed:
                     train_sampler.set_epoch(epoch)
-                lr_scheduler.step()
 
                 # train for one epoch
                 train(train_loader, model, criterion, optimizer, epoch, args)
+
+                lr_scheduler.step()
 
                 # evaluate on validation set
                 acc1 = validate(val_loader, model, criterion, args)
