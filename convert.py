@@ -27,4 +27,4 @@ def register_forward_hook(model, function, layer_types=(torch.nn.Conv2d, torch.n
         
         if len(list(module.children())) > 0:
             # recurse
-            register_forward_hook(module, function)
+            register_forward_hook(module, function, layer_types)
