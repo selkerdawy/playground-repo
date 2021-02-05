@@ -2,7 +2,6 @@ import argparse
 import sys
 import os
 import torch
-import json
 import random
 import shutil
 import time
@@ -11,6 +10,8 @@ import numpy as np
 from PIL import Image
 import pdb
 from contextlib import redirect_stdout
+import distutils
+import distutils.util
 
 import torch
 import torch.nn as nn
@@ -21,38 +22,25 @@ import torch.optim
 import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torchvision.models as models
 from torch.autograd import Variable
 
 from convert import convert_to_conv_up, register_forward_hook
+import imagenet, cifar10
 
-normalize = transforms.Normalize(
-   mean=[0.485, 0.456, 0.406],
-   std=[0.229, 0.224, 0.225]
-)
-preprocess = transforms.Compose([
-   transforms.Resize(256),
-   transforms.CenterCrop(224),
-   transforms.ToTensor(),
-   normalize
-])
-
-model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
+parser.add_argument('--dataset', default='imagenet', choices=['imagenet', 'cifar10'], 
+                    help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=model_names,
+                    choices=model_names_choices,
                     help='model architecture: ' +
-                        ' | '.join(model_names) +
+                        ' | '.join(model_names_choices) +
                         ' (default: resnet18)')
 parser.add_argument('-s', '--scale', default=1, type=int, help='scale factor to multiply by stride for each conv')
 # TODO: make --image and --data mutually exclusive
 parser.add_argument('-i', '--image', help='path to image')
-parser.add_argument('--data', metavar='DIR',
+parser.add_argument('--data-dir', default='~/pytorch_datasets', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -67,6 +55,13 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
+# TODO: make lr-milestones and lr-step mutually exclusive
+parser.add_argument('--lr-step-size', dest='lr_step_size', default=None, type=int,
+                    help='learning rate step for StepLR schedule')
+parser.add_argument('--lr-milestones', dest='lr_milestones', default=None, type=int, nargs='+', 
+                    help='learning rate milestones expressed as a list of epochs for MultiStepLR schedule')
+parser.add_argument('--lr-gamma', dest='lr_gamma', default=0.1, type=float,
+                    help='learning rate decay')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -103,19 +98,16 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('--dump-mean', dest='dump_mean', action='store_true',
                     help='log mean of each layer')
 
-def image_loader(image_name, device="cpu"):
+def image_loader(image_name, device="cpu", preprocess=imagenet.preprocess):
     """load image, returns cuda tensor"""
     image = Image.open(image_name)
     image = preprocess(image).float().unsqueeze(0) #unsqueeze to add dimension for batch size 1
     return image.to(device)
 
-def map_classid_to_label(classid):
-    class_idx = json.load(open("imagenet_class_index.json"))
-    idx2label = [class_idx[str(k)][1] for k in range(len(class_idx))]
-    return idx2label[classid]
-
 def print_mean(m, i, o):
     print(m.__class__.__name__, ' ----> Mean: ', torch.mean(o), ' ---> std: ', torch.std(o))
+
+best_acc1 = 0
 
 def main():
     args = parser.parse_args()
@@ -155,6 +147,8 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
 
+    dataset = eval(args.dataset)
+
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
 
@@ -171,10 +165,10 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
-        model = models.__dict__[args.arch](pretrained=True)
+        model = dataset.models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        model = models.__dict__[args.arch]()
+        model = dataset.models.__dict__[args.arch]()
 
     if args.scale != 1:
         model = convert_to_conv_up(model, args.scale)
@@ -223,6 +217,17 @@ def main_worker(gpu, ngpus_per_node, args):
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
+    # define learning rate schedule
+    if args.lr_milestones is not None:
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                            milestones=args.lr_milestones, 
+                                                            last_epoch=args.start_epoch - 1,
+                                                            gamma=args.gamma)
+    elif args.lr_step_size is not None:
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
+    else:
+        lr_scheduler = dataset.default_lr_scheduler(optimizer, args.start_epoch)
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -251,45 +256,26 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.image:
         device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
-        image = image_loader(args.image, device) #Image filename
+        image = image_loader(args.image, device, dataset.preprocess) #Image filename
 
         model.eval()
         probabilities = model(image)
         classid = probabilities.max(1)[1].item()
-        label = map_classid_to_label(classid)
+        label = dataset.idx2label[classid]
         print("Prediction is %s with logit %.3f" %(label, probabilities[0][classid]))
     else:
         # Data loading code
-        traindir = os.path.join(args.data, 'train')
-        valdir = os.path.join(args.data, 'val')
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                        std=[0.229, 0.224, 0.225])
-
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ]))
-
         if args.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         else:
             train_sampler = None
 
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+            dataset.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
         val_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
-            ])),
+            dataset.validation_dataset(args.data_dir),
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
 
@@ -299,10 +285,11 @@ def main_worker(gpu, ngpus_per_node, args):
             for epoch in range(args.start_epoch, args.epochs):
                 if args.distributed:
                     train_sampler.set_epoch(epoch)
-                adjust_learning_rate(optimizer, epoch, args)
 
                 # train for one epoch
                 train(train_loader, model, criterion, optimizer, epoch, args)
+
+                lr_scheduler.step()
 
                 # evaluate on validation set
                 acc1 = validate(val_loader, model, criterion, args)
@@ -458,13 +445,6 @@ class ProgressMeter(object):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
-
-def adjust_learning_rate(optimizer, epoch, args):
-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    lr = args.lr * (0.1 ** (epoch // 30))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
 
 
 def accuracy(output, target, topk=(1,)):
