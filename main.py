@@ -11,6 +11,8 @@ from torch.autograd import Variable
 from PIL import Image
 import pdb
 
+from convert import convert_to_conv_up, register_forward_hook
+
 normalize = transforms.Normalize(
    mean=[0.485, 0.456, 0.406],
    std=[0.229, 0.224, 0.225]
@@ -45,67 +47,17 @@ def map_classid_to_label(classid):
     idx2label = [class_idx[str(k)][1] for k in range(len(class_idx))]
     return idx2label[classid]
 
-class ConvUp(torch.nn.Module):
-    def __init__(self, conv, sf):
-        super(ConvUp, self).__init__()
-        self.conv = conv
-        self.conv.stride = [x * sf for x in self.conv.stride]
-        mode = 'bicubic' #'bilinear'
-        self.upsample = nn.Upsample(scale_factor=sf, mode=mode, align_corners=True)
-    def forward(self, x):
-        return self.upsample(self.conv(x))
-
-
 def print_mean(m, i, o):
     print(m.__class__.__name__, ' ----> Mean: ', torch.mean(o), ' ---> std: ', torch.std(o))
-
-
-def add_upsample_resnet(model):
-
-    firstNBlocks = 1000
-    cnt = 0
-    for block in model.modules():
-        if 'BasicBlock' in str(type(block)):
-            block.conv1 = ConvUp(block.conv1, args.scale)
-            block.conv1.register_forward_hook(print_mean)
-            block.conv2 = ConvUp(block.conv2, args.scale)
-            block.conv2.register_forward_hook(print_mean)
-            if block.downsample is not None:
-                block.downsample[0] = ConvUp(block.downsample[0], args.scale)
-
-            cnt += 1
-            if cnt > firstNBlocks:
-                break
-
-def add_upsample_vgg(model):
-    nw_sq = []
-    for layer in model.features.children():
-        nw_sq += [layer]
-
-        #Change stride
-        if isinstance(layer, nn.Conv2d):
-            scale_factor = args.scale
-            layer.stride = [x * scale_factor for x in layer.stride]
-            layer.register_forward_hook(print_mean)
-
-        #where to add upsample
-        #if isinstance(layer, nn.ReLU):
-        if isinstance(layer, nn.Conv2d):
-            mode = 'bicubic' #'bilinear'
-            upsample = nn.Upsample(scale_factor=scale_factor, mode=mode, align_corners=True)
-            nw_sq += [upsample]
-            upsample.register_forward_hook(print_mean)
-
-    model.features = nn.Sequential(*nw_sq)
 
 def main():
     image = image_loader(args.image) #Image filename
     if args.arch == 'vgg11':
         model = models.vgg11_bn(pretrained=True)
-        add_upsample_vgg(model)
     elif args.arch == 'resnet18':
         model = models.resnet18(pretrained=True)
-        add_upsample_resnet(model)
+    model = convert_to_conv_up(model, args.scale)
+    register_forward_hook(model, print_mean)
     #print(model)
     model.to(device)
     model.eval()
