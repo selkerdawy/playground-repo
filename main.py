@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 from PIL import Image
 import pdb
+from contextlib import redirect_stdout
 
 from convert import convert_to_conv_up, register_forward_hook
 
@@ -24,10 +25,19 @@ preprocess = transforms.Compose([
    normalize
 ])
 
+model_names = sorted(name for name in models.__dict__
+    if name.islower() and not name.startswith("__")
+    and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing')
 parser.add_argument('-i', '--image', help='path to image')
-parser.add_argument('-a', '--arch', help='Architecture: vgg11, resnet18')
+parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+                    choices=model_names,
+                    help='model architecture: ' +
+                        ' | '.join(model_names) +
+                        ' (default: resnet18)')
+parser.add_argument('--pretrained', dest='pretrained', default=True, type=lambda x:bool(distutils.util.strtobool(x)), 
+                    help='use pre-trained model')
 parser.add_argument('-d', '--device', type=int, help='-1 for cpu, positive for gpu_id')
 parser.add_argument('-s', '--scale', type=int, help='scale factor to multiply by stride for each conv')
 
@@ -52,10 +62,13 @@ def print_mean(m, i, o):
 
 def main():
     image = image_loader(args.image) #Image filename
-    if args.arch == 'vgg11':
-        model = models.vgg11_bn(pretrained=True)
-    elif args.arch == 'resnet18':
-        model = models.resnet18(pretrained=True)
+    # create model
+    if args.pretrained:
+        print("=> using pre-trained model '{}'".format(args.arch))
+        model = models.__dict__[args.arch](pretrained=True)
+    else:
+        print("=> creating model '{}'".format(args.arch))
+        model = models.__dict__[args.arch]()
     model = convert_to_conv_up(model, args.scale)
     register_forward_hook(model, print_mean)
     #print(model)
