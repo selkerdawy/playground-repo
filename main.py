@@ -117,6 +117,8 @@ def map_classid_to_label(classid):
 def print_mean(m, i, o):
     print(m.__class__.__name__, ' ----> Mean: ', torch.mean(o), ' ---> std: ', torch.std(o))
 
+best_acc1 = 0
+
 def main():
     args = parser.parse_args()
 
