@@ -12,6 +12,7 @@ import pdb
 from contextlib import redirect_stdout
 import distutils
 import distutils.util
+import json
 
 import torch
 import torch.nn as nn
@@ -25,7 +26,7 @@ import torch.utils.data.distributed
 from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
-from conversions.convup.convup import ConvUp
+from conversions import convup, apot
 import imagenet, cifar10
 
 model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names))
@@ -38,9 +39,12 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model architecture: ' +
                         ' | '.join(model_names_choices) +
                         ' (default: resnet18)')
-parser.add_argument('-s', '--scale', default=1, type=int, help='scale factor to multiply by stride for each conv')
+
+parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
+parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2d to APoT quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
+
 # TODO: make --image and --data mutually exclusive
 parser.add_argument('-i', '--image', help='path to image')
 parser.add_argument('--data-dir', default='~/pytorch_datasets', metavar='DIR',
@@ -173,8 +177,11 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> creating model '{}'".format(args.arch))
         model = dataset.models.__dict__[args.arch]()
 
-    if args.scale != 1:
-        model, _ = convert(model, torch.nn.Conv2d, ConvUp, index_start=args.layer_start, index_end=args.layer_end, scale=args.scale)
+    if args.convup:
+        model, _ = convert(model, torch.nn.Conv2d, convup.ConvUp, index_start=args.layer_start, index_end=args.layer_end, **args.convup)
+    if args.apot:
+        model, _ = convert(model, torch.nn.Conv2d, apot.QuantConv2d.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
+    
     if args.dump_mean:
         register_forward_hook(model, print_mean)
 
