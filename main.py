@@ -24,7 +24,8 @@ import torch.utils.data
 import torch.utils.data.distributed
 from torch.autograd import Variable
 
-from convert import convert_to_conv_up, register_forward_hook
+from convert import convert, register_forward_hook
+from upsample import ConvUp
 import imagenet, cifar10
 
 model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names))
@@ -173,7 +174,7 @@ def main_worker(gpu, ngpus_per_node, args):
         model = dataset.models.__dict__[args.arch]()
 
     if args.scale != 1:
-        model, _ = convert_to_conv_up(model, args.scale, index_start=args.layer_start, index_end=args.layer_end)
+        model, _ = convert(model, torch.nn.Conv2d, ConvUp, index_start=args.layer_start, index_end=args.layer_end, scale=args.scale)
     if args.dump_mean:
         register_forward_hook(model, print_mean)
 
