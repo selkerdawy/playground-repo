@@ -25,7 +25,7 @@ import torch.utils.data.distributed
 from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
-from upsample import ConvUp
+from conversions.convup.convup import ConvUp
 import imagenet, cifar10
 
 model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names))
