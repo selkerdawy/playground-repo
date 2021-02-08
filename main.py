@@ -38,6 +38,8 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                         ' | '.join(model_names_choices) +
                         ' (default: resnet18)')
 parser.add_argument('-s', '--scale', default=1, type=int, help='scale factor to multiply by stride for each conv')
+parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
+parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
 # TODO: make --image and --data mutually exclusive
 parser.add_argument('-i', '--image', help='path to image')
 parser.add_argument('--data-dir', default='~/pytorch_datasets', metavar='DIR',
@@ -171,7 +173,7 @@ def main_worker(gpu, ngpus_per_node, args):
         model = dataset.models.__dict__[args.arch]()
 
     if args.scale != 1:
-        model = convert_to_conv_up(model, args.scale)
+        model, _ = convert_to_conv_up(model, args.scale, index_start=args.layer_start, index_end=args.layer_end)
     if args.dump_mean:
         register_forward_hook(model, print_mean)
 
