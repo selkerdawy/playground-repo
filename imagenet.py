@@ -46,6 +46,9 @@ def validation_dataset(data_dir):
         validation_transforms
     )
 
+def default_epochs():
+    return 90
+
 def default_initial_lr():
     return 0.1
 

@@ -29,6 +29,9 @@ def validation_dataset(data_dir):
     return datasets.MNIST(data_dir, train=False,
                           transform=validation_transforms)
 
+def default_epochs():
+    return 10
+
 def default_initial_lr():
     return 1
 

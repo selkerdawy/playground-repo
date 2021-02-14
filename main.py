@@ -52,7 +52,7 @@ parser.add_argument('--data-dir', default='~/pytorch_datasets', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
+parser.add_argument('--epochs', default=None, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -297,10 +297,15 @@ def main_worker(gpu, ngpus_per_node, args):
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
 
+        if args.epochs is not None:
+            epochs = args.epochs
+        else:
+            epochs = task.default_epochs()
+
         if args.evaluate:
             validate(val_loader, model, criterion, args)
         else:
-            for epoch in range(args.start_epoch, args.epochs):
+            for epoch in range(args.start_epoch, epochs):
                 if args.distributed:
                     train_sampler.set_epoch(epoch)
 
