@@ -160,13 +160,14 @@ class QuantConv2d(nn.Conv2d):
     """
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1,
-                 bias=False, bit=5, power=True, additive=True, grad_scale=None):
+                 bias=False, bit=5, power=True, additive=True, grad_scale=None, weight_normalize=True):
         super(QuantConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups,
                                           bias)
         self.layer_type = 'QuantConv2d'
         self.bit = bit
         self.power = power
         self.grad_scale = grad_scale
+        self.weight_normalize = weight_normalize
         if power:
             if self.bit > 2:
                 self.proj_set_weight = build_power_value(B=self.bit - 1, additive=additive)
@@ -188,9 +189,12 @@ class QuantConv2d(nn.Conv2d):
             return F.conv2d(x, self.weight, self.bias, self.stride,
                             self.padding, self.dilation, self.groups)
         # weight normalization
-        mean = self.weight.mean()
-        std = self.weight.std()
-        weight = self.weight.add(-mean).div(std)
+        if self.weight_normalize:
+            mean = self.weight.mean()
+            std = self.weight.std()
+            weight = self.weight.add(-mean).div(std)
+        else:
+            weight = self.weight
         if self.power:
             if self.bit > 2:
                 weight = apot_quantization(weight, self.weight_alpha, self.proj_set_weight, True, self.grad_scale)
