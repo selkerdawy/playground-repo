@@ -26,13 +26,13 @@ import torch.utils.data.distributed
 from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
-from conversions import convup, apot
+from conversions import convup, apot, strideout
 import imagenet, cifar10
 
 model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
-parser.add_argument('--dataset', default='imagenet', choices=['imagenet', 'cifar10'], 
+parser.add_argument('--task', default='imagenet', choices=['imagenet', 'cifar10'], 
                     help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     choices=model_names_choices,
@@ -42,6 +42,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
 
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2d to APoT quantized convolution, pass argument as dict of arguments')
+parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
 
@@ -154,7 +155,7 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
 
-    dataset = eval(args.dataset)
+    task = eval(args.task)
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -172,16 +173,18 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
-        model = dataset.models.__dict__[args.arch](pretrained=True)
+        model = task.models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        model = dataset.models.__dict__[args.arch]()
+        model = task.models.__dict__[args.arch]()
 
     if args.convup:
         model, _ = convert(model, torch.nn.Conv2d, convup.ConvUp, index_start=args.layer_start, index_end=args.layer_end, **args.convup)
     if args.apot:
         model, _ = convert(model, torch.nn.Conv2d, apot.QuantConv2d.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
-    
+    if args.strideout:
+        model, _ = convert(model, torch.nn.Conv2d, strideout.StrideOut, index_start=args.layer_start, index_end=args.layer_end, **args.strideout)
+
     if args.dump_mean:
         register_forward_hook(model, print_mean)
 
@@ -236,7 +239,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.lr_step_size is not None:
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
     else:
-        lr_scheduler = dataset.default_lr_scheduler(optimizer, args.start_epoch)
+        lr_scheduler = task.default_lr_scheduler(optimizer, args.start_epoch)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -262,16 +265,18 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    #print(model)
+    print(model)
+    print("\n press any key to continue")
+    input()
 
     if args.image:
         device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
-        image = image_loader(args.image, device, dataset.preprocess) #Image filename
+        image = image_loader(args.image, device, task.preprocess) #Image filename
 
         model.eval()
         probabilities = model(image)
         classid = probabilities.max(1)[1].item()
-        label = dataset.idx2label[classid]
+        label = task.idx2label[classid]
         print("Prediction is %s with logit %.3f" %(label, probabilities[0][classid]))
     else:
         # Data loading code
@@ -281,11 +286,11 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler = None
 
         train_loader = torch.utils.data.DataLoader(
-            dataset.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
+            task.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
         val_loader = torch.utils.data.DataLoader(
-            dataset.validation_dataset(args.data_dir),
+            task.validation_dataset(args.data_dir),
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
 
