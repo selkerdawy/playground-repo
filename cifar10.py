@@ -49,7 +49,15 @@ def validation_dataset(data_dir):
         transform=validation_transforms
     )
 
+def default_initial_lr():
+    return 0.1
+
 def default_lr_scheduler(optimizer, start_epoch=0):
     return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[80, 120, 160, 180], last_epoch=start_epoch - 1)
+
+def default_optimizer(model, lr, momentum, weight_decay):
+    return torch.optim.SGD(model.parameters(), lr,
+                            momentum=momentum,
+                            weight_decay=weight_decay)
 
 idx2label = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']

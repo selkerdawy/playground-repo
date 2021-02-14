@@ -46,8 +46,16 @@ def validation_dataset(data_dir):
         validation_transforms
     )
 
+def default_initial_lr():
+    return 0.1
+
 def default_lr_scheduler(optimizer, start_epoch):
     return torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, last_epoch=start_epoch - 1)
+
+def default_optimizer(model, lr, momentum, weight_decay):
+    return torch.optim.SGD(model.parameters(), lr,
+                            momentum=momentum,
+                            weight_decay=weight_decay)
 
 class_idx = json.load(open("imagenet_class_index.json"))
 idx2label = [class_idx[str(k)][1] for k in range(len(class_idx))]
