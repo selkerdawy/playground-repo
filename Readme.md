@@ -12,12 +12,12 @@ python main.py --epochs 200
 
 - To evaluate Imagenet dataset:
 ```
-python main.py --evaluate --data <path to imagenet>
+python main.py --evaluate --data-dir <path to imagenet>
 ```
 
 - To train on Imagnet:
 ```
-python main.py --data <path to imagenet>
+python main.py --data-dir <path to imagenet>
 ```
 
 # Converting Model
