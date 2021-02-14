@@ -178,7 +178,7 @@ class QuantConv2d(nn.Conv2d):
     @classmethod
     def convert(cls, conv, **kwargs):
         # Initialize from an existing torch.nn.Conv2d layer
-        quant_conv = cls(conv.in_channels, conv.out_channels, conv.kernel_size, conv.stride, conv.padding, conv.dilation, conv.groups, conv.bias,
+        quant_conv = cls(conv.in_channels, conv.out_channels, conv.kernel_size, conv.stride, conv.padding, conv.dilation, conv.groups, conv.bias is not None,
                         **kwargs)
         quant_conv.bias = conv.bias
         quant_conv.weight = conv.weight
