@@ -27,12 +27,12 @@ from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
 from conversions import convup, apot, strideout
-import imagenet, cifar10
+import imagenet, cifar10, mnist
 
-model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names))
+model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names) | set(mnist.model_names))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
-parser.add_argument('--task', default='imagenet', choices=['imagenet', 'cifar10'], 
+parser.add_argument('--task', default='imagenet', choices=['imagenet', 'cifar10', 'mnist'], 
                     help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     choices=model_names_choices,
@@ -61,7 +61,7 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+parser.add_argument('--lr', '--learning-rate', default=None, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 # TODO: make lr-milestones and lr-step mutually exclusive
 parser.add_argument('--lr-step-size', dest='lr_step_size', default=None, type=int,
@@ -221,14 +221,17 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             model = torch.nn.DataParallel(model).cuda()
 
+    if args.lr is not None:
+        initial_lr = args.lr
+    else:
+        initial_lr = task.default_initial_lr()
+
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss()
     if not args.cpu:
         criterion = criterion.cuda(args.gpu) 
 
-    optimizer = torch.optim.SGD(model.parameters(), args.lr,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
+    optimizer = task.default_optimizer(model, initial_lr, args.momentum, args.weight_decay)
 
     # define learning rate schedule
     if args.lr_milestones is not None:
