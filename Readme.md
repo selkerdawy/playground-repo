@@ -21,9 +21,14 @@ python main.py --data-dir <path to imagenet>
 ```
 
 # Converting Model
-- To convert convolution to APoT 5-bit quantized convolution
+- To convert convolution to APoT 5-bit quantized convolution:
 ```
 python main.py -i grumpy.jpg --apot '{"bit": 5}'
+```
+
+- To convert convolution and linear layers to HAQ 4-bit quantization:
+```
+python main.py -i grumpy.jpg --haq '{"w_bit": 5, "a_bit": 5}'
 ```
 
 - To increase stride of convolution and upsample

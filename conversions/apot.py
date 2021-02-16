@@ -1,7 +1,7 @@
 # Additive Power-of-Two Quantization: An Efficient Non-uniform Discretization For Neural Networks
 # Yuhang Li, Xin Dong, Wei Wang
 # International Conference on Learning Representations (ICLR), 2020.
-# https://github.com/yhhhli/APoT_Quantization
+# Source of Code: https://github.com/yhhhli/APoT_Quantization
 
 
 import torch.nn as nn
@@ -175,15 +175,6 @@ class QuantConv2d(nn.Conv2d):
         self.act_alpha = torch.nn.Parameter(torch.tensor(6.0))
         self.weight_alpha = torch.nn.Parameter(torch.tensor(3.0))
 
-    @classmethod
-    def convert(cls, conv, **kwargs):
-        # Initialize from an existing torch.nn.Conv2d layer
-        quant_conv = cls(conv.in_channels, conv.out_channels, conv.kernel_size, conv.stride, conv.padding, conv.dilation, conv.groups, conv.bias is not None,
-                        **kwargs)
-        quant_conv.bias = conv.bias
-        quant_conv.weight = conv.weight
-        return quant_conv
-
     def forward(self, x):
         if self.bit == 32:
             return F.conv2d(x, self.weight, self.bias, self.stride,
@@ -242,3 +233,12 @@ class last_fc(nn.Linear):
         weight_q = self.weight.div(max).mul(127).round().div(127).mul(max)
         weight_q = (weight_q - self.weight).detach() + self.weight
         return F.linear(x, weight_q, self.bias)
+
+## conversion function added by us
+def convert(conv, **kwargs):
+    # Initialize from an existing torch.nn.Conv2d layer
+    quant_conv = QuantConv2d(conv.in_channels, conv.out_channels, conv.kernel_size, conv.stride, conv.padding, conv.dilation, conv.groups, conv.bias is not None,
+                            **kwargs)
+    quant_conv.bias = conv.bias
+    quant_conv.weight = conv.weight
+    return quant_conv
