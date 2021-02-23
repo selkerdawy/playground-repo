@@ -73,130 +73,6 @@ class ValueThreshold(object):
         return valid_idx
 
 # This function was obtained from https://github.com/yuhuixu1993/Trained-Rank-Pruning/
-def channel_decompose_model(model, layer_configs):
-    '''
-    a single NxCxHxW low-rank filter is decoupled
-    into a NxRx1x1 kernel following a RxCxHxW kernel
-    '''
-    for name, module in model._modules.items():
-        if len(list(module.children())) > 0:
-            # recurse
-            model._modules[name] = channel_decompose_model(module, layer_configs)
-        if type(module) == nn.Conv2d:
-            conv_layer = module 
-            print(conv_layer)
-
-            (set_rank, criterion) = layer_configs[conv_layer]
-
-            if module.stride != (1,1):
-                print('\tNot supported stride (1,1)')
-                continue
-
-            param = conv_layer.weight.data
-            dim = param.size()  
-
-            if set_rank is not None and criterion is not None:
-                raise Exception("Can't have both pre-set rank and criterion for a layer")
-            elif criterion is not None:
-                rank = svd_rank_channel(conv_layer, criterion)
-            elif set_rank is not None:
-                rank = min(set_rank, dim[1])
-            elif set_rank is None and criterion is None:
-                print("\tExcluding layer")
-                continue
-            print("\tRank: ", rank)
-
-            decomposed = channel_decompose_conv(conv_layer, rank)
-            model._modules[name] = decomposed
-        elif type(module) == nn.Linear:
-            linear_layer = module
-            print(linear_layer)
-
-            (set_rank, criterion) = layer_configs[linear_layer]
-
-            if set_rank is not None and criterion is not None:
-                raise Exception("Can't have both pre-set rank and criterion for a layer")
-            elif criterion is not None:
-                rank = svd_rank_linear(linear_layer, criterion)
-            elif set_rank is not None:
-                rank = min(set_rank, dim[1])
-            elif set_rank is None and criterion is None:
-                print("\tExcluding layer")
-                continue
-
-            print("\tRank: ", rank)
-
-            decomposed = svd_decomposition_linear_layer(linear_layer, rank)
-
-            model._modules[name] = decomposed
-
-    return model
-
-# This function was obtained from https://github.com/yuhuixu1993/Trained-Rank-Pruning/
-def depthwise_decompose_model(model, layer_configs):
-    '''
-    a single NxCxHxW low-rank filter is decoupled
-    into a parrallel path composed of point-wise conv followed by depthwise conv
-    '''
-    for name, module in model._modules.items():
-        if len(list(module.children())) > 0:
-            # recurse
-            model._modules[name] = depthwise_decompose_model(module, layer_configs)
-        elif type(module) == nn.Conv2d:
-            conv_layer = module 
-            print(conv_layer)
-
-            (set_rank, criterion) = layer_configs[conv_layer]
-
-            if conv_layer.kernel_size == (1,1):
-                print("\tNot valid for filter size (1,1)")
-                continue
-
-            if conv_layer.groups > 1:
-                print("\tCan't decompose depthwise conv")
-                continue
-
-            param = conv_layer.weight.data
-            dim = param.size()  
-
-            if set_rank is not None and criterion is not None:
-                raise Exception("Can't have both pre-set rank and criterion for a layer")
-            elif criterion is not None:
-                rank = svd_rank_depthwise(conv_layer, criterion)
-            elif set_rank is not None:
-                rank = min(set_rank, min(dim[2]*dim[3], dim[1]))
-            elif set_rank is None and criterion is None:
-                print("\tExcluding layer")
-                continue
-            print("\tRank: ", rank)
-
-            decomposed = depthwise_decomposition_conv_layer(conv_layer, name, rank)
-            model._modules[name] = decomposed     
-        elif type(module) == nn.Linear:
-            linear_layer = module
-            print(linear_layer)
-
-            (set_rank, criterion) = layer_configs[linear_layer]
-
-            if set_rank is not None and criterionc is not None:
-                raise Exception("Can't have both pre-set rank and criterion for a layer")
-            elif criterion is not None:
-                rank = svd_rank_linear(linear_layer, criterion)
-            elif set_rank is not None:
-                rank = min(set_rank, min(dim[2]*dim[3], dim[1]))
-            elif set_rank is None and criterion is None:
-                print("\tExcluding layer")
-                continue
-
-            print("\tRank: ", rank)
-
-            decomposed = svd_decomposition_linear_layer(linear_layer, rank)
-
-            model._modules[name] = decomposed
-
-    return model
-
-# This function was obtained from https://github.com/yuhuixu1993/Trained-Rank-Pruning/
 def spatial_decompose_model(model, layer_configs):
     '''
     a single NxCxHxW low-rank filter is decoupled
@@ -569,6 +445,7 @@ def svd_decomposition_linear_layer(layer, rank):
     new_layers = [first_layer, second_layer]
     return nn.Sequential(*new_layers)
 
+# This function was obtained from https://github.com/yuhuixu1993/Trained-Rank-Pruning/
 def channel_decompose_conv(module, rank=None, criterion=EnergyThreshold, threshold=0.85):
     '''
     a single NxCxHxW low-rank filter is decoupled
@@ -618,7 +495,24 @@ def channel_decompose_conv(module, rank=None, criterion=EnergyThreshold, thresho
     decomposed = nn.Sequential(*new_layers)        
     return decomposed
 
-def depthwise_decomposition_conv_layer(module, name, rank):
+# This function was obtained from https://github.com/yuhuixu1993/Trained-Rank-Pruning/
+def depthwise_decompose_conv(module, rank=None, criterion=EnergyThreshold, threshold=0.85):
+    '''
+    a single NxCxHxW low-rank filter is decoupled
+    into a parrallel path composed of point-wise conv followed by depthwise conv
+    '''
+    # Sanity Checks
+    if module.kernel_size == (1,1):
+        print("\tNot valid for filter size (1,1)")
+        return module
+
+    if module.groups > 1:
+        print("\tCan't decompose depthwise conv")
+        return module
+
+    if rank is None or rank==-1:
+        rank = svd_rank_depthwise(module, criterion(threshold))
+
     param = module.weight.data
     dim = param.size()
     
@@ -654,7 +548,7 @@ def depthwise_decomposition_conv_layer(module, name, rank):
     state_dict = new_layers.state_dict()
     for i in range(rank):
         dest = 'path.%d.pw.weight' % i
-        src = '%s.weight' % name
+        src = '%s.weight' % module.name
         #print(dest+' <-- '+src)
         state_dict[dest].copy_(pw[i])
 
@@ -664,7 +558,7 @@ def depthwise_decomposition_conv_layer(module, name, rank):
 
         if i == 0 and hasb:
             dest = 'path.%d.dw.bias' % i
-            src = '%s.bias' % name
+            src = '%s.bias' % module.name
             #print(dest+' <-- '+src)
             state_dict[dest].copy_(b)
 
