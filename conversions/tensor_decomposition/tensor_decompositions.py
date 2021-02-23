@@ -72,86 +72,6 @@ class ValueThreshold(object):
                 break
         return valid_idx
 
-def tucker_decompose_model(model, layer_configs):
-    '''
-    decompose filter NxCxHxW to 3 filters:
-    R1xCx1x1 , R2xR1xHxW, and NxR2x1x1
-    Unlike other decomposition methods, it requires 2 ranks
-    '''
-    for name, module in model._modules.items():
-        if len(list(module.children())) > 0:
-            # recurse
-            model._modules[name] = tucker_decompose_model(module, layer_configs)
-        elif type(module) == nn.Conv2d:
-            conv_layer = module 
-            print(conv_layer)
-
-            (set_ranks, criterion) = layer_configs[conv_layer]
-
-            if set_ranks is not None and criterion is not None:
-                raise Exception("Can't have both pre-set rank and criterion for a layer")
-            elif criterion is not None:
-                ranks = tucker_ranks(conv_layer)
-            elif set_ranks is not None:
-                ranks = set_ranks
-            elif set_ranks is None and criterion is None:
-                print("\tExcluding layer")
-                continue
-            print("\tRanks: ", ranks)
-
-            # check if Tucker-1 rank or Tucker-2 ranks
-            if np.isscalar(ranks):
-                rank = ranks
-                is_tucker2 = False
-            else:
-                is_tucker2 = True
-
-            if (is_tucker2):
-                if (np.prod(ranks) >= conv_layer.in_channels * conv_layer.out_channels):
-                    print("np.prod(ranks) >= conv_layer.in_channels * conv_layer.out_channels)")
-                    continue
-
-                if (any(r <= 0 for r in ranks)):
-                    print("One of the estimated ranks is 0 or less. Skipping layer")
-                    continue
-
-                decomposed = tucker_decomposition_conv_layer(conv_layer, ranks)
-            else:
-                if (rank <= 0):
-                    print("The estimated rank is 0 or less. Skipping layer")
-                    continue
-                    
-                decomposed = tucker1_decomposition_conv_layer(conv_layer, rank)
-
-            model._modules[name] = decomposed
-        elif type(module) == nn.Linear:
-            linear_layer = module
-            print(linear_layer)
-
-            (set_rank, criterion) = layer_configs[linear_layer]
-
-            if set_rank is not None and criterion is not None:
-                raise Exception("Can't have both pre-set rank and criterion for a layer")
-            elif criterion is not None:
-                rank = tucker1_rank(linear_layer)
-
-                print(linear_layer, "Tucker1 Estimated rank", rank)
-                # hack to deal with the case when rank is very small (happened with ResNet56 on CIFAR10) and could deteriorate accuracy
-                if rank < 2: 
-                    rank = svd_rank_linear(linear_layer)
-                    print("Will instead use SVD Rank (using 90% rule) of ", rank, "for layer: ", linear_layer)
-            elif set_rank is not None:
-                rank = min(set_rank, dim[1])
-            elif set_rank is None and criterion is None:
-                print("\tExcluding layer")
-                continue
-
-            decomposed = svd_decomposition_linear_layer(linear_layer, rank)
-
-            model._modules[name] = decomposed
-
-    return model
-
 def cp_decompose_model(model, exclude_first_conv=False, exclude_linears=False, passed_first_conv=False):
     for name, module in model._modules.items():
         if len(list(module.children())) > 0:
@@ -576,15 +496,26 @@ def cp_rank(layer):
     rank = max([diag_0.shape[0], diag_1.shape[0]])
     return rank
 
-def tucker_decomposition_conv_layer(layer, ranks=None, criterion=tucker_ranks):
-    """ Gets a conv layer, 
-        returns a nn.Sequential object with the Tucker decomposition.
-        The ranks are estimated with a Python implementation of VBMF
+def tucker_decompose_conv(layer, ranks=None, criterion=tucker_ranks):
+    """ decompose filter NxCxHxW to 3 filters:
+        R1xCx1x1 , R2xR1xHxW, and NxR2x1x1
+        Unlike other decomposition methods, it requires 2 ranks
         https://github.com/CasvandenBogaard/VBMF
     """
 
     if ranks is None:
         ranks = criterion(layer)
+
+    '''
+    # Sanity Checks
+    if (np.prod(ranks) >= conv_layer.in_channels * conv_layer.out_channels):
+        print("np.prod(ranks) >= conv_layer.in_channels * conv_layer.out_channels)")
+        continue
+
+    if (any(r <= 0 for r in ranks)):
+        print("One of the estimated ranks is 0 or less. Skipping layer")
+        continue
+    '''
 
     core, [last, first] = \
         partial_tucker(layer.weight.data, \
