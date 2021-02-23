@@ -46,11 +46,12 @@ parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2
 parser.add_argument('--deepshift', default=None, type=json.loads, help='convert conv2d to DeepShift-PS quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--haq', default=None, type=json.loads, help='convert conv2d and linear to HAQ quantized convolution, pass argument as dict of arguments')
 
+parser.add_argument('--svd-decompose', default=None, type=json.loads, help='apply SVD decomposition on linear layers')
+parser.add_argument('--channel-decompose', default=None, type=json.loads, help='apply channel decomposition on convolutions')
+parser.add_argument('--spatial-decompose', default=None, type=json.loads, help='apply spatial decomposition on convolutions')
+parser.add_argument('--depthwise-decompose', default=None, type=json.loads, help='apply depthwise decomposition on convolutions')
 parser.add_argument('--tucker-decompose', default=None, type=json.loads, help='apply Tucker decomposition on convolutions')
 parser.add_argument('--cp-decompose', default=None, type=json.loads, help='apply CP decomposition on convolutions')
-parser.add_argument('--channel-decompose', default=None, type=json.loads, help='apply channel decomposition on convolutions')
-parser.add_argument('--depthwise-decompose', default=None, type=json.loads, help='apply depthwise decomposition on convolutions')
-parser.add_argument('--spatial-decompose', default=None, type=json.loads, help='apply spatial decomposition on convolutions')
 
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
@@ -190,16 +191,18 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> creating model '{}'".format(args.arch))
         model = task.models.__dict__[args.arch]()
 
+    if args.svd_decompose:
+        model, _ = convert(model, torch.nn.Linear, tensor_decompositions.svd_decompose_linear, index_start=args.layer_start, index_end=args.layer_end, **args.svd_decompose)
+    if args.channel_decompose:
+        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.channel_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.channel_decompose)
+    if args.spatial_decompose:
+        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.spatial_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.spatial_decompose)
+    if args.depthwise_decompose:
+        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.depthwise_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.depthwise_decompose)
     if args.tucker_decompose:
         model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.tucker_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.tucker_decompose)
     if args.cp_decompose:
         model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.cp_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.cp_decompose)
-    if args.channel_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.channel_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.channel_decompose)
-    if args.depthwise_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.depthwise_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.depthwise_decompose)
-    if args.spatial_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.spatial_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.spatial_decompose)
 
     if args.apot:
         model, _ = convert(model, torch.nn.Conv2d, apot.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
