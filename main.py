@@ -56,10 +56,16 @@ parser.add_argument('--cp-decompose', default=None, type=json.loads, help='apply
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
 
-parser.add_argument('--downsize-input', default=None, type=json.loads, help='downsize the input images, pass argument as dict of arguments')
+parser.add_argument('--scale-input', default=None, type=json.loads, help='scale the input images, pass argument as dict of arguments')
 
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
+
+parser.add_argument('--conversion-epoch-start', default=0, type=int, help='first epoch to apply conversion to')
+parser.add_argument('--conversion-epoch-end', default=0, type=int, help='last epoch to apply conversion to')
+parser.add_argument('--conversion-epoch-step', default=0, type=int, help='epochs to skip when applying conversion')
+# TODO: make --conversion-epochs be mutually exclusive the --conversion-epoch-start/end/step
+parser.add_argument('--conversion-epochs', default=None, type=int, nargs='+', help='custom list of epochs to apply conversion to')
 
 # TODO: make --image and --data mutually exclusive
 parser.add_argument('-i', '--image', help='path to image')
@@ -193,6 +199,11 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> creating model '{}'".format(args.arch))
         model = task.models.__dict__[args.arch]()
 
+    # create epoch range
+    if args.conversion_epochs is None:
+        args.conversion_epochs = range(args.conversion_epoch_start, args.conversion_epoch_end+1, args.conversion_epoch_step)
+
+    # apply conversions
     if args.svd_decompose:
         model, _ = convert(model, torch.nn.Linear, tensor_decompositions.svd_decompose_linear, index_start=args.layer_start, index_end=args.layer_end, **args.svd_decompose)
     if args.channel_decompose:
@@ -388,9 +399,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if torch.cuda.is_available():
             target = target.cuda(args.gpu, non_blocking=True)
 
-        # optional: downsize input
-        if args.downsize_input:
-            images = torch.nn.functional.upsample(images, **args.downsize_input)
+        # optional: scale input
+        if args.scale_input:
+            if epoch in args.conversion_epochs:
+                images = torch.nn.functional.interpolate(images, **args.scale_input)
 
         # compute output
         output = model(images)
