@@ -35,3 +35,8 @@ python main.py -i grumpy.jpg --haq '{"w_bit": 5, "a_bit": 5}'
 ```
 python main.py -i grumpy.jpg --convup '{"scale": 2, "mode": "bilinear"}'
 ```
+
+- To perform Tucker decomposition
+```
+python main.py --data-dir ~/pytorch_datasets/imagenet --tucker-decompose '{"ranks":[20,20]}' --task imagenet --pretrained True --arch resnet18 --layer-start 1
+```

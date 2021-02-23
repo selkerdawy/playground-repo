@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import traceback
 from collections import OrderedDict
-from conversions.tensor_decomposition.VBMF import VBMF
+import conversions.tensor_decomposition.VBMF as VBMF
 
 tl.set_backend("pytorch")
 
@@ -71,43 +71,6 @@ class ValueThreshold(object):
                 valid_idx = i
                 break
         return valid_idx
-
-def cp_decompose_model(model, exclude_first_conv=False, exclude_linears=False, passed_first_conv=False):
-    for name, module in model._modules.items():
-        if len(list(module.children())) > 0:
-            # recurse
-            model._modules[name] = cp_decompose_model(module, exclude_first_conv, exclude_linears, passed_first_conv)
-        elif type(module) == nn.Conv2d:
-            if passed_first_conv is False:
-                passed_first_conv = True
-                if exclude_first_conv is True:
-                    continue
-
-            conv_layer = module
-            rank = cp_rank(conv_layer)
-            print(conv_layer, "CP Estimated rank", rank)
-
-            if (rank**2 >= conv_layer.in_channels * conv_layer.out_channels):
-                print("(rank**2 >= conv_layer.in_channels * conv_layer.out_channels")
-                continue
-            
-            decomposed = cp_decomposition_conv_layer(conv_layer, rank)
-
-            model._modules[name] = decomposed
-        elif type(module) == nn.Linear:
-            if exclude_linears is True:
-                continue
-
-            # TODO: Revisit this part to decide how to deal with linear layer in CP Decomposition
-            linear_layer = module 
-            rank = svd_rank_linear(linear_layer)
-            print(linear_layer, "SVD Estimated Rank (using 90% rule): ", rank)
-
-            decomposed = svd_decomposition_linear_layer(linear_layer, rank)
-           
-            model._modules[name] = decomposed
-
-    return model
 
 # This function was obtained from https://github.com/yuhuixu1993/Trained-Rank-Pruning/
 def channel_decompose_model(model, layer_configs):
@@ -324,14 +287,38 @@ class MultiPathConv(nn.Module):
             output += m(x)
         return output
 
+def cp_rank(layer):
+    weights = layer.weight.data
 
-def cp_decomposition_conv_layer(layer, rank):
+    # Method used in previous repo
+    # rank = max(layer.weight.shape)//3
+    # return rank
+
+    unfold_0 = tl.base.unfold(weights, 0) 
+    unfold_1 = tl.base.unfold(weights, 1)
+    _, diag_0, _, _ = VBMF.EVBMF(unfold_0)
+    _, diag_1, _, _ = VBMF.EVBMF(unfold_1)
+
+    rank = max([diag_0.shape[0], diag_1.shape[0]])
+    return rank
+
+def cp_decompose_conv(layer, rank=None, criterion=cp_rank):
     """ Gets a conv layer and a target rank, 
         returns a nn.Sequential object with the decomposition """
 
+    if rank is None or rank == -1:
+        rank = criterion(layer)
+
+    '''
+    # Sanity Check
+    if (rank**2 >= conv_layer.in_channels * conv_layer.out_channels):
+        print("(rank**2 >= conv_layer.in_channels * conv_layer.out_channels")
+        continue
+    '''
+
     # Perform CP decomposition on the layer weight tensorly. 
     last, first, vertical, horizontal = \
-        parafac(layer.weight.data, rank=rank, init='svd')
+        parafac(layer.weight.data, rank=rank, init='svd')[1]
 
     pointwise_s_to_r_layer = torch.nn.Conv2d(in_channels=first.shape[0], \
             out_channels=first.shape[1], kernel_size=1, stride=1, padding=0, 
@@ -369,7 +356,7 @@ def cp_decomposition_conv_layer(layer, rank):
     
     return nn.Sequential(*new_layers)
 
-def cp_decomposition_conv_layer_other(layer, rank):
+def cp_decompose_conv_other(layer, rank):
     W = layer.weight.data
 
     last, first, vertical, horizontal = parafac(W, rank=rank, init='random')
@@ -481,21 +468,6 @@ def tucker_ranks(layer):
     ranks = [diag_0.shape[0], diag_1.shape[1]]
     return ranks
 
-def cp_rank(layer):
-    weights = layer.weight.data
-
-    # Method used in previous repo
-    # rank = max(layer.weight.shape)//3
-    # return rank
-
-    unfold_0 = tl.base.unfold(weights, 0) 
-    unfold_1 = tl.base.unfold(weights, 1)
-    _, diag_0, _, _ = VBMF.EVBMF(unfold_0)
-    _, diag_1, _, _ = VBMF.EVBMF(unfold_1)
-
-    rank = max([diag_0.shape[0], diag_1.shape[0]])
-    return rank
-
 def tucker_decompose_conv(layer, ranks=None, criterion=tucker_ranks):
     """ decompose filter NxCxHxW to 3 filters:
         R1xCx1x1 , R2xR1xHxW, and NxR2x1x1
@@ -503,7 +475,7 @@ def tucker_decompose_conv(layer, ranks=None, criterion=tucker_ranks):
         https://github.com/CasvandenBogaard/VBMF
     """
 
-    if ranks is None:
+    if ranks is None or ranks == [-1,-1]:
         ranks = criterion(layer)
 
     '''
@@ -519,7 +491,7 @@ def tucker_decompose_conv(layer, ranks=None, criterion=tucker_ranks):
 
     core, [last, first] = \
         partial_tucker(layer.weight.data, \
-            modes=[0, 1], ranks=ranks, init='svd')
+            modes=[0, 1], rank=ranks, init='svd')
 
     # A pointwise convolution that reduces the channels from S to R3
     first_layer = torch.nn.Conv2d(in_channels=first.shape[0], \
