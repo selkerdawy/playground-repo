@@ -371,7 +371,10 @@ def tucker1_decomposition_conv_layer(layer, rank):
     new_layers = [core_layer, last_layer]
     return nn.Sequential(*new_layers)
 
-def svd_decomposition_linear_layer(layer, rank):
+def svd_decompose_linear(layer, rank=None, criterion=EnergyThreshold, threshold=0.85):
+    if rank is None or rank==-1:
+        rank = svd_rank_linear(layer, criterion(threshold))
+
     [U, S, V] = tl.partial_svd(layer.weight.data, rank)
 
     first_layer = torch.nn.Linear(in_features=V.shape[1], out_features=V.shape[0], bias=False)
