@@ -33,14 +33,14 @@ validation_transforms = transforms.Compose([
 preprocess = validation_transforms
 
 def train_dataset(data_dir):
-    train_dir = os.path.join(args.data, 'train')
+    train_dir = os.path.join(data_dir, 'train')
     return datasets.ImageFolder(
         train_dir,
         train_transforms,
     )
 
 def validation_dataset(data_dir):
-    val_dir = os.path.join(args.data, 'val')
+    val_dir = os.path.join(data_dir, 'val')
     return datasets.ImageFolder(
         val_dir, 
         validation_transforms
