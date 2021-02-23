@@ -27,6 +27,7 @@ from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
 from conversions import convup, apot, strideout, haq, deepshift
+from conversions.tensor_decomposition import tensor_decompositions
 from conversions.deepshift import convert_to_shift
 import imagenet, cifar10, mnist
 
@@ -44,8 +45,10 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
 parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2d to APoT quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--deepshift', default=None, type=json.loads, help='convert conv2d to DeepShift-PS quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--haq', default=None, type=json.loads, help='convert conv2d and linear to HAQ quantized convolution, pass argument as dict of arguments')
+parser.add_argument('--tucker-decompose', default=None, type=json.loads, help='apply Tucker decomposition on convolutions')
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
+
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
 
@@ -180,6 +183,9 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print("=> creating model '{}'".format(args.arch))
         model = task.models.__dict__[args.arch]()
+
+    if args.tucker_decompose:
+        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.tucker_decomposition_conv_layer, index_start=args.layer_start, index_end=args.layer_end, **args.tucker_decompose)
 
     if args.apot:
         model, _ = convert(model, torch.nn.Conv2d, apot.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
