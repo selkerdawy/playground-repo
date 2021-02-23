@@ -173,10 +173,13 @@ def cp_decompose_conv(layer, rank=None, criterion=cp_rank):
     
     return nn.Sequential(*new_layers)
 
-def cp_decompose_conv_other(layer, rank):
+def cp_decompose_conv_other(layer, rank=None, criterion=cp_rank):
+    if rank is None or rank==-1:
+        rank = criterion(layer)
+
     W = layer.weight.data
 
-    last, first, vertical, horizontal = parafac(W, rank=rank, init='random')
+    last, first, vertical, horizontal = parafac(W, rank=rank, init='random')[1]
     
     pointwise_s_to_r_layer = nn.Conv2d(in_channels=first.shape[0],
                                        out_channels=first.shape[1],
@@ -212,7 +215,7 @@ def cp_decompose_conv_other(layer, rank):
 
     new_layers = [pointwise_s_to_r_layer,
                   depthwise_r_to_r_layer, pointwise_r_to_t_layer]
-    return new_layers
+    return nn.Sequential(*new_layers)
 
 def svd_rank(weight, criterion):
     _, S, _ = torch.svd(weight, some=True) # tl.partial_svd(weight, min(weight.shape))
