@@ -40,3 +40,8 @@ python main.py -i grumpy.jpg --convup '{"scale": 2, "mode": "bilinear"}'
 ```
 python main.py --data-dir ~/pytorch_datasets/imagenet --tucker-decompose '{"ranks":[20,20]}' --task imagenet --pretrained True --arch resnet18 --layer-start 1
 ```
+
+- To perform depthwise decomposition
+```
+python main.py --data-dir ~/pytorch_datasets/imagenet --depthwise-decompose '{"threshold":0.3}' --task imagenet --pretrained True --arch resnet18 --layer-start 1
+```
