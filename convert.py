@@ -16,6 +16,7 @@ def convert(model, layer_from, layer_to, index_start=0, index_end=-1, index=0, *
     for name, module in model._modules.items():
         if isinstance(module, (layer_from)):
             if index >= index_start and index <= index_end:
+                module.name = name
                 model._modules[name] = layer_to(module, **kwargs)
             index += 1
         
