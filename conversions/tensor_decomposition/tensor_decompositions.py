@@ -106,7 +106,7 @@ def channel_decompose_model(model, layer_configs):
                 continue
             print("\tRank: ", rank)
 
-            decomposed = channel_decomposition_conv_layer(conv_layer, rank)
+            decomposed = channel_decompose_conv(conv_layer, rank)
             model._modules[name] = decomposed
         elif type(module) == nn.Linear:
             linear_layer = module
@@ -475,7 +475,7 @@ def tucker_decompose_conv(layer, ranks=None, criterion=tucker_ranks):
         https://github.com/CasvandenBogaard/VBMF
     """
 
-    if ranks is None or ranks == [-1,-1]:
+    if ranks is None or ranks == [-1,-1] or ranks == -1:
         ranks = criterion(layer)
 
     '''
@@ -569,7 +569,19 @@ def svd_decomposition_linear_layer(layer, rank):
     new_layers = [first_layer, second_layer]
     return nn.Sequential(*new_layers)
 
-def channel_decomposition_conv_layer(module, rank):
+def channel_decompose_conv(module, rank=None, criterion=EnergyThreshold, threshold=0.85):
+    '''
+    a single NxCxHxW low-rank filter is decoupled
+    into a NxRx1x1 kernel following a RxCxHxW kernel
+    '''
+
+    if rank is None or rank==-1:
+        rank = svd_rank_channel(module, criterion(threshold))
+
+    if module.stride != (1,1):
+        print('\tNot supported stride (1,1)')
+        return module
+
     param = module.weight.data
     dim = param.size()
     
