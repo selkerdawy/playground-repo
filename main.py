@@ -56,6 +56,8 @@ parser.add_argument('--cp-decompose', default=None, type=json.loads, help='apply
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
 
+parser.add_argument('--downsize-input', default=None, type=json.loads, help='downsize the input images, pass argument as dict of arguments')
+
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
 
@@ -385,6 +387,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             images = images.cuda(args.gpu, non_blocking=True)
         if torch.cuda.is_available():
             target = target.cuda(args.gpu, non_blocking=True)
+
+        # optional: downsize input
+        if args.downsize_input:
+            images = torch.nn.functional.upsample(images, **args.downsize_input)
 
         # compute output
         output = model(images)
