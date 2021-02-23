@@ -202,7 +202,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.tucker_decompose:
         model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.tucker_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.tucker_decompose)
     if args.cp_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.cp_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.cp_decompose)
+        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.cp_decompose_conv_other, index_start=args.layer_start, index_end=args.layer_end, **args.cp_decompose)
 
     if args.apot:
         model, _ = convert(model, torch.nn.Conv2d, apot.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
