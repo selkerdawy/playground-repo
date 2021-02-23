@@ -47,6 +47,7 @@ parser.add_argument('--deepshift', default=None, type=json.loads, help='convert 
 parser.add_argument('--haq', default=None, type=json.loads, help='convert conv2d and linear to HAQ quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--tucker-decompose', default=None, type=json.loads, help='apply Tucker decomposition on convolutions')
 parser.add_argument('--cp-decompose', default=None, type=json.loads, help='apply CP decomposition on convolutions')
+parser.add_argument('--channel-decompose', default=None, type=json.loads, help='apply channel decomposition on convolutions')
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
 
@@ -189,6 +190,9 @@ def main_worker(gpu, ngpus_per_node, args):
         model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.tucker_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.tucker_decompose)
     if args.cp_decompose:
         model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.cp_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.cp_decompose)
+    if args.channel_decompose:
+        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.channel_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.channel_decompose)
+
 
     if args.apot:
         model, _ = convert(model, torch.nn.Conv2d, apot.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
