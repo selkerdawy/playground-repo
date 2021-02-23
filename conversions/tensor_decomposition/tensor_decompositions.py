@@ -341,7 +341,10 @@ def tucker_decompose_conv(layer, ranks=None, criterion=tucker_ranks):
     new_layers = [first_layer, core_layer, last_layer]
     return nn.Sequential(*new_layers)
 
-def tucker1_decomposition_conv_layer(layer, rank):
+def tucker1_decompose_conv_layer(layer, rank=None, criterion=tucker1_rank):
+    if rank is None or rank==-1:
+        rank = criterion(layer)
+
     core, [last] = \
         partial_tucker(layer.weight.data, \
             modes=[0], ranks=rank, init='svd')
