@@ -45,3 +45,8 @@ python main.py --data-dir ~/pytorch_datasets/imagenet --tucker-decompose '{"rank
 ```
 python main.py --data-dir ~/pytorch_datasets/imagenet --depthwise-decompose '{"threshold":0.3}' --task imagenet --pretrained True --arch resnet18 --layer-start 1
 ```
+
+- To downsize every other epoch
+```
+python main.py --data-dir ~/pytorch_datasets/ --scale-input '{"scale_factor":0.25, "recompute_scale_factor":true}'  --task cifar10 --pretrained False --arch resnet20 --conversion-epoch-start 0 --conversion-epoch-end 200 --conversion-epoch-step 2
+```
