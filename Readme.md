@@ -3,6 +3,7 @@
 ```
 git clone https://github.com/selkerdawy/playground-repo.git
 cd playground-repo
+pip install --user torch torchvision
 ```
 
 # Without Converting Model
