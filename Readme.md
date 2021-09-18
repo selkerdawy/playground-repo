@@ -1,3 +1,9 @@
+# Getting Started
+- Clone the repo:
+```
+git clone https://github.com/selkerdawy/playground-repo.git
+cd playground-repo
+```
 
 # Without Converting Model
 - To infer image:
