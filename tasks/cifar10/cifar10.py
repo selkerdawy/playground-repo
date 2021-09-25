@@ -1,11 +1,10 @@
 import argparse
 
 import torch
-import torchvision.models as models
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import cifar10_models as models
+import tasks.cifar10.models as models
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
