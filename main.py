@@ -31,15 +31,13 @@ from conversions.tensor_decomposition import tensor_decompositions
 from conversions.deepshift import convert_to_shift
 import tasks
 
-model_names_choices = list(set(tasks.imagenet.model_names) | set(tasks.cifar10.model_names) | set(tasks.mnist.model_names))
-
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
 parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist'], 
                     help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=model_names_choices,
+                    choices=tasks.model_names,
                     help='model architecture: ' +
-                        ' | '.join(model_names_choices) +
+                        ' | '.join(tasks.model_names) +
                         ' (default: resnet18)')
 
 parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2d to APoT quantized convolution, pass argument as dict of arguments')
