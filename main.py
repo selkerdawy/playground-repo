@@ -34,7 +34,7 @@ import imagenet, cifar10, mnist
 model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names) | set(mnist.model_names))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
-parser.add_argument('--task', default='imagenet', choices=['imagenet', 'cifar10', 'mnist'], 
+parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist'], 
                     help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     choices=model_names_choices,
@@ -62,14 +62,14 @@ parser.add_argument('--layer-start', default=0, type=int, help='index of layer t
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
 
 parser.add_argument('--conversion-epoch-start', default=0, type=int, help='first epoch to apply conversion to')
-parser.add_argument('--conversion-epoch-end', default=0, type=int, help='last epoch to apply conversion to')
-parser.add_argument('--conversion-epoch-step', default=0, type=int, help='epochs to skip when applying conversion')
+parser.add_argument('--conversion-epoch-end', default=-1, type=int, help='last epoch to apply conversion to')
+parser.add_argument('--conversion-epoch-step', default=1, type=int, help='epochs to skip when applying conversion')
 # TODO: make --conversion-epochs be mutually exclusive the --conversion-epoch-start/end/step
 parser.add_argument('--conversion-epochs', default=None, type=int, nargs='+', help='custom list of epochs to apply conversion to')
 
 # TODO: make --image and --data mutually exclusive
 parser.add_argument('-i', '--image', help='path to image')
-parser.add_argument('--data-dir', default='~/pytorch_datasets', metavar='DIR',
+parser.add_argument('--data-dir', default='~/datasets', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
