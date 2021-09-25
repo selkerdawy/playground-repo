@@ -1,9 +1,9 @@
 # Getting Started
-- Clone the repo:
+- Install some libraries:
 ```
-git clone https://github.com/selkerdawy/playground-repo.git
-cd playground-repo
-pip install --user torch torchvision
+### clone repo ###
+cd TorchPlayground
+pip install - requirements.txt
 ```
 
 # Without Converting Model
