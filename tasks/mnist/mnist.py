@@ -7,8 +7,11 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import lenet as models
-model_names = ['lenet']
+import tasks.mnist.models as models
+
+model_names = sorted(name for name in models.__dict__
+    if name.islower() and not name.startswith("__")
+    and callable(models.__dict__[name]))
 
 normalize = transforms.Normalize((0.1307,), (0.3081,))
 
