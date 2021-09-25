@@ -60,5 +60,6 @@ def default_optimizer(model, lr, momentum, weight_decay):
                             momentum=momentum,
                             weight_decay=weight_decay)
 
-class_idx = json.load(open("imagenet_class_index.json"))
+class_index_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "imagenet_class_index.json")
+class_idx = json.load(open(class_index_path))
 idx2label = [class_idx[str(k)][1] for k in range(len(class_idx))]
