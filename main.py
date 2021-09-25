@@ -29,9 +29,9 @@ from convert import convert, register_forward_hook
 from conversions import convup, apot, strideout, haq, deepshift
 from conversions.tensor_decomposition import tensor_decompositions
 from conversions.deepshift import convert_to_shift
-import imagenet, cifar10, mnist
+import tasks
 
-model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names) | set(mnist.model_names))
+model_names_choices = list(set(tasks.imagenet.model_names) | set(tasks.cifar10.model_names) | set(tasks.mnist.model_names))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
 parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist'], 
@@ -127,7 +127,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('--dump-mean', dest='dump_mean', action='store_true',
                     help='log mean of each layer')
 
-def image_loader(image_name, device="cpu", preprocess=imagenet.preprocess):
+def image_loader(image_name, device="cpu", preprocess=tasks.imagenet.preprocess):
     """load image, returns cuda tensor"""
     image = Image.open(image_name)
     image = preprocess(image).float().unsqueeze(0) #unsqueeze to add dimension for batch size 1
@@ -176,7 +176,7 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
 
-    task = eval(args.task)
+    task = eval("tasks." + str(args.task))
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
