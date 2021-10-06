@@ -6,20 +6,34 @@ cd TorchPlayground
 pip install - requirements.txt
 ```
 
+# Command Template
+```
+python main.py --task <imagenet | cifar10 | mnist> --arch <model>
+            [--train | --infer <sample path> | --evaluate]
+            --<conversion> '{<conversion parameters>}'
+                [--layer-start <num>] [--layer-end <num>]
+                [--conversion-epoch-start <num>] [--conversion-epoch-end <num>] [--conversion-epoch-step <num>]
+            [--epochs <num>] [--batch-size <num>] [--momentum <num>] [--optimizer <opt>] [--pretrained <true | false>]
+            [--lr <num>] [--lr-schedule <scheduler>] [--lr-step-size <num>] [--lr-milestones <nums>]
+            [--cpu | --gpu <gpu-id>]
+```
+
+There are more options that can be listed by running `python main.py --help`
+
 # Without Converting Model
 - To infer image:
 ```
-python main.py -i grumpy.jpg
+python main.py --task cifar10 -i grumpy.jpg
 ```
 
 - To train on CIFAR10:
 ```
-python main.py --epochs 200
+python main.py --task cifar10 --epochs 200
 ```
 
 - To evaluate Imagenet dataset:
 ```
-python main.py --evaluate --data-dir <path to imagenet>
+python main.py --task imagenet --evaluate --data-dir <path to imagenet>
 ```
 
 - To train on Imagnet:
