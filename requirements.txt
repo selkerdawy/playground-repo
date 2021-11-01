@@ -5,3 +5,4 @@ datasets # huggingface
 progress
 sklearn
 tensorly
+pyplugs

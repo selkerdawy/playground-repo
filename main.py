@@ -28,6 +28,10 @@ from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
 import conversions
+import tasks
+
+# todo: check why 1) prints empty string 2) prints multiple times
+#print("available tasks: ", tasks.tasks())
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
 parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist', 'imdb'], # todo: make this generic
@@ -171,7 +175,7 @@ def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
 
     # only import the task required
-    task = importlib.import_module(f"tasks.{args.task}")
+    task = tasks
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
