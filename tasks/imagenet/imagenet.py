@@ -52,13 +52,29 @@ def default_epochs():
 def default_initial_lr():
     return 0.1
 
-def default_lr_scheduler(optimizer, start_epoch):
+def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
     return torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, last_epoch=start_epoch - 1)
 
 def default_optimizer(model, lr, momentum, weight_decay):
     return torch.optim.SGD(model.parameters(), lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
+
+def to_device(batch, device, gpu_id):
+    (images, target) = batch
+    if gpu_id is not None:
+        images = images.cuda(gpu_id, non_blocking=True)
+    if device.startswith("cuda"):
+        target = target.cuda(gpu_id, non_blocking=True)
+    return (images, target)
+
+def get_input(batch):
+    (images, _) = batch
+    return {input: images}
+
+def get_loss(output, batch, criterion):
+    (_, target) = batch
+    return criterion(output, target)
 
 class_index_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "imagenet_class_index.json")
 class_idx = json.load(open(class_index_path))

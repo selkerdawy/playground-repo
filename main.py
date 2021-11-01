@@ -13,6 +13,7 @@ from contextlib import redirect_stdout
 import distutils
 import distutils.util
 import json
+import importlib
 
 import torch
 import torch.nn as nn
@@ -27,16 +28,13 @@ from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
 import conversions
-import tasks
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
-parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist'], 
+parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist', 'imdb'], # todo: make this generic
                     help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=tasks.model_names,
-                    help='model architecture: ' +
-                        ' | '.join(tasks.model_names) +
-                        ' (default: resnet18)')
+                    # todo: check if model belongs to task, OR is on torchhub/huggingface/timm, OR is a path
+                    help='model architecture (default: resnet18)')
 
 parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2d to APoT quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--deepshift', default=None, type=json.loads, help='convert conv2d to DeepShift-PS quantized convolution, pass argument as dict of arguments')
@@ -123,7 +121,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('--dump-mean', dest='dump_mean', action='store_true',
                     help='log mean of each layer')
 
-def image_loader(image_name, device="cpu", preprocess=tasks.imagenet.preprocess):
+def image_loader(image_name, preprocess, device="cpu"):
     """load image, returns cuda tensor"""
     image = Image.open(image_name)
     image = preprocess(image).float().unsqueeze(0) #unsqueeze to add dimension for batch size 1
@@ -172,7 +170,8 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
 
-    task = eval("tasks." + str(args.task))
+    # only import the task required
+    task = importlib.import_module(f"tasks.{args.task}")
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -190,6 +189,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
+        # todo: pretrained could be name of weights, e.g., bert-case, bert-uncase, etc.
         model = task.models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
@@ -261,6 +261,44 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             model = torch.nn.DataParallel(model).cuda()
 
+    print(model)
+    print("\n press any key to continue")
+    input()
+
+    # todo: generalize device if gpu id(s) is passed
+    device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
+
+    if args.image:
+        image = image_loader(args.image, task.preprocess, device) #Image filename
+
+        model.eval()
+        probabilities = model(image)
+        classid = probabilities.max(1)[1].item()
+        label = task.idx2label[classid]
+        print("Prediction is %s with logit %.3f" %(label, probabilities[0][classid]))
+        return
+
+    # Data loading code
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    else:
+        train_sampler = None
+
+    train_loader = torch.utils.data.DataLoader(
+        task.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+
+    val_loader = torch.utils.data.DataLoader(
+        task.validation_dataset(args.data_dir),
+        batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=True)
+
+    # training hyperparams
+    if args.epochs is not None:
+        epochs = args.epochs
+    else:
+        epochs = task.default_epochs()
+
     if args.lr is not None:
         initial_lr = args.lr
     else:
@@ -282,7 +320,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.lr_step_size is not None:
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
     else:
-        lr_scheduler = task.default_lr_scheduler(optimizer, args.start_epoch)
+        lr_scheduler = task.default_lr_scheduler(optimizer, epochs, len(train_loader), args.start_epoch)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -308,70 +346,37 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    print(model)
-    print("\n press any key to continue")
-    input()
-
-    if args.image:
-        device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
-        image = image_loader(args.image, device, task.preprocess) #Image filename
-
-        model.eval()
-        probabilities = model(image)
-        classid = probabilities.max(1)[1].item()
-        label = task.idx2label[classid]
-        print("Prediction is %s with logit %.3f" %(label, probabilities[0][classid]))
+    if args.evaluate:
+        validate(val_loader, model, criterion, args)
     else:
-        # Data loading code
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
+        for epoch in range(args.start_epoch, epochs):
 
-        train_loader = torch.utils.data.DataLoader(
-            task.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
-            num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+            if args.distributed:
+                train_sampler.set_epoch(epoch)
 
-        val_loader = torch.utils.data.DataLoader(
-            task.validation_dataset(args.data_dir),
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
+            # train for one epoch
+            train(train_loader, task, model, criterion, optimizer, epoch, device, args)
 
-        if args.epochs is not None:
-            epochs = args.epochs
-        else:
-            epochs = task.default_epochs()
+            lr_scheduler.step()
 
-        if args.evaluate:
-            validate(val_loader, model, criterion, args)
-        else:
-            for epoch in range(args.start_epoch, epochs):
-                if args.distributed:
-                    train_sampler.set_epoch(epoch)
+            # evaluate on validation set
+            acc1 = validate(val_loader, model, criterion, args)
 
-                # train for one epoch
-                train(train_loader, model, criterion, optimizer, epoch, args)
+            # remember best acc@1 and save checkpoint
+            is_best = acc1 > best_acc1
+            best_acc1 = max(acc1, best_acc1)
 
-                lr_scheduler.step()
+            if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                    and args.rank % ngpus_per_node == 0):
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'arch': args.arch,
+                    'state_dict': model.state_dict(),
+                    'best_acc1': best_acc1,
+                    'optimizer' : optimizer.state_dict(),
+                }, is_best)
 
-                # evaluate on validation set
-                acc1 = validate(val_loader, model, criterion, args)
-
-                # remember best acc@1 and save checkpoint
-                is_best = acc1 > best_acc1
-                best_acc1 = max(acc1, best_acc1)
-
-                if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                        and args.rank % ngpus_per_node == 0):
-                    save_checkpoint({
-                        'epoch': epoch + 1,
-                        'arch': args.arch,
-                        'state_dict': model.state_dict(),
-                        'best_acc1': best_acc1,
-                        'optimizer' : optimizer.state_dict(),
-                    }, is_best)
-
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -381,30 +386,28 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         len(train_loader),
         [batch_time, data_time, losses, top1, top5],
         prefix="Epoch: [{}]".format(epoch))
-
     # switch to train mode
     model.train()
-
     end = time.time()
-    for i, (images, target) in enumerate(train_loader):
+    for i, batch in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        if torch.cuda.is_available():
-            target = target.cuda(args.gpu, non_blocking=True)
-
+        batch = task.to_device(batch, device, args.gpu)
         # optional: scale input
+        # todo: clean this up and make it more generic
+        # todo: perhaps add args.process_input or add this as a transformation
         if args.scale_input:
             if epoch in args.conversion_epochs:
+                (images, _) = batch
                 images = torch.nn.functional.interpolate(images, **args.scale_input)
 
         # compute output
-        output = model(images)
-        loss = criterion(output, target)
+        input = task.get_input(batch)
+        output = model(**input)
+        loss = task.get_loss(output, batch, criterion)
 
         # measure accuracy and record loss
+        # todo: create "task.get_metrics(output, batch)"
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), images.size(0))
         top1.update(acc1[0], images.size(0))
