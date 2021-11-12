@@ -1,5 +1,5 @@
 import argparse
-import pyplugs
+
 
 import torch
 import torchvision.transforms as transforms
@@ -35,16 +35,16 @@ preprocess = transforms.Compose([
 ])
 
 # todo
-#@pyplugs.register
+#
 #def model_names():
 #    ...
 
-#@pyplugs.register
+#
 #    def preprocess:
 #    ...
 
 
-@pyplugs.register
+
 def train_dataset(data_dir):
     return datasets.CIFAR10(
         root=data_dir,
@@ -53,7 +53,7 @@ def train_dataset(data_dir):
         download=True
     )
 
-@pyplugs.register
+
 def validation_dataset(data_dir):
     return datasets.CIFAR10(
         root=data_dir, 
@@ -61,25 +61,25 @@ def validation_dataset(data_dir):
         transform=validation_transforms
     )
 
-@pyplugs.register
+
 def default_epochs():
     return 200
 
-@pyplugs.register
+
 def default_initial_lr():
     return 0.1
 
-@pyplugs.register
+
 def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
     return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[80, 120, 160, 180], last_epoch=start_epoch - 1)
 
-@pyplugs.register
+
 def default_optimizer(model, lr, momentum, weight_decay):
     return torch.optim.SGD(model.parameters(), lr,
                           momentum=momentum,
                           weight_decay=weight_decay)
 
-@pyplugs.register
+
 def to_device(batch, device, gpu_id):
     (images, target) = batch
     if gpu_id is not None:
@@ -88,12 +88,12 @@ def to_device(batch, device, gpu_id):
         target = target.cuda(gpu_id, non_blocking=True)
     return (images, target)
 
-@pyplugs.register
+
 def get_input(batch):
     (images, _) = batch
     return {input: images}
 
-@pyplugs.register
+
 def get_loss(output, batch, criterion):
     (_, target) = batch
     return criterion(output, target)
@@ -101,6 +101,6 @@ def get_loss(output, batch, criterion):
 idx2label = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
 # todo
-# @pyplugs.register
+# 
 # def idx2label:
 #     ...

@@ -1,5 +1,5 @@
 import argparse
-import pyplugs
+
 import json
 import os
 
@@ -33,7 +33,7 @@ validation_transforms = transforms.Compose([
 
 preprocess = validation_transforms
 
-@pyplugs.register
+
 def train_dataset(data_dir):
     train_dir = os.path.join(data_dir, 'train')
     return datasets.ImageFolder(
@@ -41,7 +41,7 @@ def train_dataset(data_dir):
         train_transforms,
     )
 
-@pyplugs.register
+
 def validation_dataset(data_dir):
     val_dir = os.path.join(data_dir, 'val')
     return datasets.ImageFolder(
@@ -49,25 +49,25 @@ def validation_dataset(data_dir):
         validation_transforms
     )
 
-@pyplugs.register
+
 def default_epochs():
     return 90
 
-@pyplugs.register
+
 def default_initial_lr():
     return 0.1
 
-@pyplugs.register
+
 def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
     return torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, last_epoch=start_epoch - 1)
 
-@pyplugs.register
+
 def default_optimizer(model, lr, momentum, weight_decay):
     return torch.optim.SGD(model.parameters(), lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
 
-@pyplugs.register
+
 def to_device(batch, device, gpu_id):
     (images, target) = batch
     if gpu_id is not None:
@@ -76,12 +76,12 @@ def to_device(batch, device, gpu_id):
         target = target.cuda(gpu_id, non_blocking=True)
     return (images, target)
 
-@pyplugs.register
+
 def get_input(batch):
     (images, _) = batch
     return {input: images}
 
-@pyplugs.register
+
 def get_loss(output, batch, criterion):
     (_, target) = batch
     return criterion(output, target)
