@@ -371,7 +371,7 @@ def main_worker(gpu, ngpus_per_node, args):
             lr_scheduler.step()
 
             # evaluate on validation set
-            acc1 = validate(val_loader, model, criterion, args)
+            acc1 = validate(val_loader, task, model, criterion, args)
 
             # remember best acc@1 and save checkpoint
             is_best = acc1 > best_acc1
@@ -418,9 +418,9 @@ def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
         loss = task.get_loss(output, batch, criterion)
 
         # measure accuracy and record loss
-        # todo: create "task.get_metrics(output, batch)"
         target = task.get_target(batch)
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        metrics = task.get_metrics(output, target, topk=(1, 5))
+        acc1, acc5 = metrics["acc1"], metrics["acc5"]
         losses.update(loss.item(), input.size(0))
         top1.update(acc1[0], input.size(0))
         top5.update(acc5[0], input.size(0))
@@ -438,7 +438,7 @@ def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
             progress.display(i)
 
 
-def validate(val_loader, model, criterion, args):
+def validate(val_loader, task, model, criterion, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
@@ -453,18 +453,23 @@ def validate(val_loader, model, criterion, args):
 
     with torch.no_grad():
         end = time.time()
-        for i, (images, target) in enumerate(val_loader):
+        for i, batch in enumerate(val_loader):
+            #todo: make this generic for different tasks
+            (images, target) = batch
             if args.gpu is not None and not args.cpu:
                 images = images.cuda(args.gpu, non_blocking=True)
             if torch.cuda.is_available() and not args.cpu:
                 target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-            output = model(images)
-            loss = criterion(output, target)
+            input, kwargs = task.get_input(batch)
+            output = model(input, **kwargs)
+            loss = task.get_loss(output, batch, criterion)
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            target = task.get_target(batch)
+            metrics = task.get_metrics(output, target, topk=(1, 5))
+            acc1, acc5 = metrics["acc1"], metrics["acc5"]
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0], images.size(0))
             top5.update(acc5[0], images.size(0))
@@ -528,23 +533,6 @@ class ProgressMeter(object):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
 
 if __name__ == '__main__':
     main()

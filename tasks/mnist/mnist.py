@@ -8,6 +8,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
+import metrics
 import tasks.mnist.models as models
 
 model_names = sorted(name for name in models.__dict__
@@ -66,5 +67,13 @@ def get_target(batch):
 def get_loss(output, batch, criterion):
     (_, target) = batch
     return criterion(output, target)
+
+def get_metrics(output, target, **kwargs):
+    metrics_dict = dict()
+    if "topk" in kwargs:
+        acc1, acc5 = metrics.accuracy(output, target, topk=(1, 5))
+        metrics_dict["acc1"] = acc1
+        metrics_dict["acc5"] = acc5
+    return metrics_dict
 
 idx2label = [str(k) for k in range(10)]
