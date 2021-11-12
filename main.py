@@ -316,7 +316,7 @@ def main_worker(gpu, ngpus_per_node, args):
         initial_lr = task.default_initial_lr()
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss()
+    criterion = task.default_criterion()
     if not args.cpu:
         criterion = criterion.cuda(args.gpu) 
 

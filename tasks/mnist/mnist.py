@@ -64,14 +64,20 @@ def get_target(batch):
     (_, target) = batch
     return target
 
+def default_criterion():
+    return torch.nn.CrossEntropyLoss()
+
 def get_loss(output, batch, criterion):
     (_, target) = batch
     return criterion(output, target)
 
+def default_metrics():
+    return topk(1,5)
+
 def get_metrics(output, target, **kwargs):
     metrics_dict = dict()
     if "topk" in kwargs:
-        acc1, acc5 = metrics.accuracy(output, target, topk=(1, 5))
+        acc1, acc5 = metrics.accuracy(output, target, kwargs["topk"])
         metrics_dict["acc1"] = acc1
         metrics_dict["acc5"] = acc5
     return metrics_dict
