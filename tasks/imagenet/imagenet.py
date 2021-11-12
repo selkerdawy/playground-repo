@@ -49,24 +49,19 @@ def validation_dataset(data_dir):
         validation_transforms
     )
 
-
 def default_epochs():
     return 90
-
 
 def default_initial_lr():
     return 0.1
 
-
 def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
     return torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, last_epoch=start_epoch - 1)
-
 
 def default_optimizer(model, lr, momentum, weight_decay):
     return torch.optim.SGD(model.parameters(), lr,
                             momentum=momentum,
                             weight_decay=weight_decay)
-
 
 def to_device(batch, device, gpu_id):
     (images, target) = batch
@@ -76,11 +71,13 @@ def to_device(batch, device, gpu_id):
         target = target.cuda(gpu_id, non_blocking=True)
     return (images, target)
 
-
 def get_input(batch):
     (images, _) = batch
-    return {input: images}
+    return images, {}
 
+def get_target(batch):
+    (_, target) = batch
+    return target
 
 def get_loss(output, batch, criterion):
     (_, target) = batch

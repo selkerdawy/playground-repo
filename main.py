@@ -413,16 +413,17 @@ def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
                 images = torch.nn.functional.interpolate(images, **args.scale_input)
 
         # compute output
-        input = task.get_input(batch)
-        output = model(**input)
+        input, kwargs = task.get_input(batch)
+        output = model(input, **kwargs)
         loss = task.get_loss(output, batch, criterion)
 
         # measure accuracy and record loss
         # todo: create "task.get_metrics(output, batch)"
+        target = task.get_target(batch)
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), images.size(0))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
+        losses.update(loss.item(), input.size(0))
+        top1.update(acc1[0], input.size(0))
+        top5.update(acc5[0], input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()

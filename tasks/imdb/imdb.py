@@ -35,18 +35,14 @@ preprocess = "todo" # todo validation_transforms
 def train_dataset(data_dir): # todo: use data_dir
     return tokenized_datasets["train"]
 
-
 def validation_dataset(data_dir): # todo: use data_dir
     return tokenized_datasets["test"]
-
 
 def default_epochs():
     return 3
 
-
 def default_initial_lr():
     return 5e-5
-
 
 def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
     # todo: update with start_epoch
@@ -58,20 +54,16 @@ def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
         num_training_steps=num_training_steps
     )
 
-
 def default_optimizer(model, lr, momentum, weight_decay):
     return transformers.AdamW(model.parameters(), lr,
                               weight_decay=weight_decay)
-
 
 def to_device(batch, device, gpu_id):
     # todo: deal with gpu_id
     return {k: v.to(device) for k, v in batch.items()}
 
-
 def get_input(batch):
     return batch
-
 
 def get_loss(output, batch, criterion):
     del criterion # not using it
