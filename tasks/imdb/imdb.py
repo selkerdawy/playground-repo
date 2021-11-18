@@ -65,8 +65,8 @@ def to_device(batch, device, gpu_id):
 def get_input(batch):
     return batch
 
-def get_loss(output, batch, criterion):
-    del criterion # not using it
+def get_loss(output, batch, loss_fn):
+    del loss_fn # not using it
     return output.loss
 
 metrics = "todo"

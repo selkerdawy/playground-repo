@@ -27,6 +27,10 @@ validation_transforms = transforms
 preprocess = transforms
 
 # todo: use @property
+# todo: create Task class so that tasks override it?
+
+# todo: add default_model
+# todo: add default_batch_size
 
 def train_dataset(data_dir):
     return datasets.MNIST(data_dir, train=True, download=True,
@@ -64,15 +68,15 @@ def get_target(batch):
     (_, target) = batch
     return target
 
-def default_criterion():
+def default_loss_fn():
     return torch.nn.NLLLoss()
 
-def get_loss(output, batch, criterion):
+def get_loss(output, batch, loss_fn):
     (_, target) = batch
-    return criterion(output, target)
+    return loss_fn(output, target)
 
 def default_metrics():
-    return topk(1,5)
+    return topk(1)
 
 def get_metrics(output, target, **kwargs):
     metrics_dict = dict()

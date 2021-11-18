@@ -86,12 +86,12 @@ def get_target(batch):
     (_, target) = batch
     return target
 
-def default_criterion():
+def default_loss_fn():
     return nn.CrossEntropyLoss()
 
-def get_loss(output, batch, criterion):
+def get_loss(output, batch, loss_fn):
     (_, target) = batch
-    return torch.criterion(output, target)
+    return torch.loss_fn(output, target)
 
 def default_metrics():
     return topk(1,5)

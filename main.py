@@ -315,10 +315,10 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         initial_lr = task.default_initial_lr()
 
-    # define loss function (criterion) and optimizer
-    criterion = task.default_criterion()
+    # define loss function and optimizer
+    loss_fn = task.default_loss_fn()
     if not args.cpu:
-        criterion = criterion.cuda(args.gpu) 
+        loss_fn = loss_fn.cuda(args.gpu) 
 
     optimizer = task.default_optimizer(model, initial_lr, args.momentum, args.weight_decay)
 
@@ -358,7 +358,7 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     if args.evaluate:
-        validate(val_loader, model, criterion, args)
+        validate(val_loader, model, loss_fn, args)
     else:
         for epoch in range(args.start_epoch, epochs):
 
@@ -366,12 +366,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 train_sampler.set_epoch(epoch)
 
             # train for one epoch
-            train(train_loader, task, model, criterion, optimizer, epoch, device, args)
+            train(train_loader, task, model, loss_fn, optimizer, epoch, device, args)
 
             lr_scheduler.step()
 
             # evaluate on validation set
-            acc1 = validate(val_loader, task, model, criterion, args)
+            acc1 = validate(val_loader, task, model, loss_fn, args)
 
             # remember best acc@1 and save checkpoint
             is_best = acc1 > best_acc1
@@ -387,7 +387,7 @@ def main_worker(gpu, ngpus_per_node, args):
                     'optimizer' : optimizer.state_dict(),
                 }, is_best)
 
-def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
+def train(train_loader, task, model, loss_fn, optimizer, epoch, device, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -415,7 +415,7 @@ def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
         # compute output
         input, kwargs = task.get_input(batch)
         output = model(input, **kwargs)
-        loss = task.get_loss(output, batch, criterion)
+        loss = task.get_loss(output, batch, loss_fn)
 
         # measure accuracy and record loss
         target = task.get_target(batch)
@@ -438,7 +438,7 @@ def train(train_loader, task, model, criterion, optimizer, epoch, device, args):
             progress.display(i)
 
 
-def validate(val_loader, task, model, criterion, args):
+def validate(val_loader, task, model, loss_fn, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
@@ -464,10 +464,11 @@ def validate(val_loader, task, model, criterion, args):
             # compute output
             input, kwargs = task.get_input(batch)
             output = model(input, **kwargs)
-            loss = task.get_loss(output, batch, criterion)
+            loss = task.get_loss(output, batch, loss_fn)
 
             # measure accuracy and record loss
             target = task.get_target(batch)
+            #todo: add argument for metrics
             metrics = task.get_metrics(output, target, topk=(1, 5))
             acc1, acc5 = metrics["acc1"], metrics["acc5"]
             losses.update(loss.item(), images.size(0))
