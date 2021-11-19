@@ -316,9 +316,13 @@ def main_worker(gpu, ngpus_per_node, args):
         initial_lr = task.default_initial_lr()
 
     # define loss function and optimizer
+    # todo: add loss_fn to args
     loss_fn = task.default_loss_fn()
     if not args.cpu:
         loss_fn = loss_fn.cuda(args.gpu) 
+
+    # todo: add metrics_fn to args
+    metrics_fn = task.default_metrics_fn()
 
     optimizer = task.default_optimizer(model, initial_lr, args.momentum, args.weight_decay)
 
@@ -358,7 +362,7 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     if args.evaluate:
-        validate(val_loader, model, loss_fn, args)
+        validate(val_loader, model, loss_fn, metrics_fn, args)
     else:
         for epoch in range(args.start_epoch, epochs):
 
@@ -366,12 +370,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 train_sampler.set_epoch(epoch)
 
             # train for one epoch
-            train(train_loader, task, model, loss_fn, optimizer, epoch, device, args)
+            train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, device, args)
 
             lr_scheduler.step()
 
             # evaluate on validation set
-            acc1 = validate(val_loader, task, model, loss_fn, args)
+            acc1 = validate(val_loader, task, model, loss_fn, metrics_fn, args)
 
             # remember best acc@1 and save checkpoint
             is_best = acc1 > best_acc1
@@ -387,7 +391,7 @@ def main_worker(gpu, ngpus_per_node, args):
                     'optimizer' : optimizer.state_dict(),
                 }, is_best)
 
-def train(train_loader, task, model, loss_fn, optimizer, epoch, device, args):
+def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, device, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -419,11 +423,12 @@ def train(train_loader, task, model, loss_fn, optimizer, epoch, device, args):
 
         # measure accuracy and record loss
         target = task.get_target(batch)
-        metrics = task.get_metrics(output, target, topk=(1, 5))
-        acc1, acc5 = metrics["acc1"], metrics["acc5"]
+        metrics = task.get_metrics(output, target, metrics_fn)
+        #[acc1, acc5] = metrics
+        [acc1] = metrics
         losses.update(loss.item(), input.size(0))
         top1.update(acc1[0], input.size(0))
-        top5.update(acc5[0], input.size(0))
+        #top5.update(acc5[0], input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -438,7 +443,7 @@ def train(train_loader, task, model, loss_fn, optimizer, epoch, device, args):
             progress.display(i)
 
 
-def validate(val_loader, task, model, loss_fn, args):
+def validate(val_loader, task, model, loss_fn, metrics_fn, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
@@ -469,11 +474,12 @@ def validate(val_loader, task, model, loss_fn, args):
             # measure accuracy and record loss
             target = task.get_target(batch)
             #todo: add argument for metrics
-            metrics = task.get_metrics(output, target, topk=(1, 5))
-            acc1, acc5 = metrics["acc1"], metrics["acc5"]
+            metrics = task.get_metrics(output, target, metrics_fn)
+            #[acc1, acc5] = metrics
+            [acc1] = metrics
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
+            #top5.update(acc5[0], images.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -483,8 +489,7 @@ def validate(val_loader, task, model, loss_fn, args):
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
-        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
+        progress.display_summary()
 
     return top1.avg
 
@@ -529,6 +534,11 @@ class ProgressMeter(object):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
         print('\t'.join(entries))
+
+    def display_summary(self):
+        entries = [" *"]
+        entries += [f'{meter.name} {meter.avg:.3f}' for meter in self.meters]
+        print(' '.join(entries))
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))

@@ -75,15 +75,10 @@ def get_loss(output, batch, loss_fn):
     (_, target) = batch
     return loss_fn(output, target)
 
-def default_metrics():
-    return topk(1)
+def default_metrics_fn():
+    return metrics.accuracy(topk=(1,))
 
-def get_metrics(output, target, **kwargs):
-    metrics_dict = dict()
-    if "topk" in kwargs:
-        acc1, acc5 = metrics.accuracy(output, target, kwargs["topk"])
-        metrics_dict["acc1"] = acc1
-        metrics_dict["acc5"] = acc5
-    return metrics_dict
+def get_metrics(output, target, metrics_fn):
+    return metrics_fn(output, target)
 
 idx2label = [str(k) for k in range(10)]
