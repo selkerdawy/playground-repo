@@ -121,6 +121,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'multi node data parallel training')
 parser.add_argument('--dump-mean', dest='dump_mean', action='store_true',
                     help='log mean of each layer')
+#todo: add dry-run argument
 
 def image_loader(image_name, preprocess, device="cpu"):
     """load image, returns cuda tensor"""
@@ -275,7 +276,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     print(model)
     print("\n press any key to continue")
-    input()
+    #input()
 
     # todo: generalize device if gpu id(s) is passed
     device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
@@ -376,9 +377,10 @@ def main_worker(gpu, ngpus_per_node, args):
             lr_scheduler.step()
 
             # evaluate on validation set
-            acc1 = validate(val_loader, task, model, loss_fn, metrics_fn, args)
+            metrics = validate(val_loader, task, model, loss_fn, metrics_fn, args)
 
-            # remember best acc@1 and save checkpoint
+            # remember best acc and save checkpoint
+            acc1 = metrics[0]
             is_best = acc1 > best_acc1
             best_acc1 = max(acc1, best_acc1)
 
@@ -393,14 +395,14 @@ def main_worker(gpu, ngpus_per_node, args):
                 }, is_best)
 
 def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, device, args):
-    batch_time = AverageMeter('Time', ':6.3f')
+    batch_times = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+    metrics = AverageMeter('Acc@1 / Acc@5', ':6.2f')
+    #top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, data_time, losses, top1, top5],
+        [batch_times, data_time, losses, metrics],
         prefix="Epoch: [{}]".format(epoch))
     # switch to train mode
     model.train()
@@ -416,6 +418,7 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
             if epoch in args.conversion_epochs:
                 (images, _) = batch
                 images = torch.nn.functional.interpolate(images, **args.scale_input)
+        break
 
         # compute output
         input, kwargs = task.get_input(batch)
@@ -424,11 +427,11 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
 
         # measure accuracy and record loss
         target = task.get_target(batch)
-        metrics = task.get_metrics(output, target, metrics_fn)
+        metric = task.get_metrics(output, target, metrics_fn)
         #[acc1, acc5] = metrics
-        [acc1] = metrics
+        #[acc1] = metrics
         losses.update(loss.item(), input.size(0))
-        top1.update(acc1[0], input.size(0))
+        top1.update(metric, input.size(0))
         #top5.update(acc5[0], input.size(0))
 
         # compute gradient and do SGD step
@@ -437,7 +440,7 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
         optimizer.step()
 
         # measure elapsed time
-        batch_time.update(time.time() - end)
+        batch_times.update(time.time() - end)
         end = time.time()
 
         if i % args.print_freq == 0:
@@ -445,13 +448,14 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
 
 
 def validate(val_loader, task, model, loss_fn, metrics_fn, args):
-    batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
+    print("metrics_fn.name(): ", metrics_fn.name())
+    batch_times = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
-    top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
-    top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
+    metrics = AverageMeter(metrics_fn.name(), ':6.2f', Summary.AVERAGE)
+    #top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses, top1, top5],
+        [batch_times, losses, metrics],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -475,15 +479,13 @@ def validate(val_loader, task, model, loss_fn, metrics_fn, args):
             # measure accuracy and record loss
             target = task.get_target(batch)
             #todo: add argument for metrics
-            metrics = task.get_metrics(output, target, metrics_fn)
-            #[acc1, acc5] = metrics
-            [acc1] = metrics
+            metric = task.get_metrics(output, target, metrics_fn)
+            metric = [m.item() for m in metric]
             losses.update(loss.item(), images.size(0))
-            top1.update(acc1[0], images.size(0))
-            #top5.update(acc5[0], images.size(0))
+            metrics.update(metric, images.size(0))
 
             # measure elapsed time
-            batch_time.update(time.time() - end)
+            batch_times.update(time.time() - end)
             end = time.time()
 
             if i % args.print_freq == 0:
@@ -491,7 +493,7 @@ def validate(val_loader, task, model, loss_fn, metrics_fn, args):
 
         progress.display_summary()
 
-    return top1.avg
+    return metric
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
@@ -520,6 +522,8 @@ class AverageMeter(object):
         self.count = 0
 
     def update(self, val, n=1):
+        if isinstance(val, list):
+            val = np.asarray(val)
         self.val = val
         self.sum += val * n
         self.count += n
@@ -527,22 +531,27 @@ class AverageMeter(object):
 
     def __str__(self):
         fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
+        val = list(self.val) if isinstance(self.val, np.ndarray) else self.val
+        avg = list(self.avg) if isinstance(self.avg, np.ndarray) else self.avg
+        #return fmtstr.format({'val': val, 'avg': avg, 'name1': self.name})
+        return f'{self.name} {val} ({avg})'
 
     def summary(self):
         fmtstr = ''
+        avg = list(self.avg) if isinstance(self.avg, np.ndarray) else self.avg
+        sum = list(self.sum) if isinstance(self.sum, np.ndarray) else self.sum
         if self.summary_type is Summary.NONE:
             fmtstr = ''
         elif self.summary_type is Summary.AVERAGE:
-            fmtstr = '{name} {avg:.3f}'
+            fmtstr = self.name + " " + str(avg)
         elif self.summary_type is Summary.SUM:
-            fmtstr = '{name} {sum:.3f}'
+            fmtstr = self.name + " "  + str(sum)
         elif self.summary_type is Summary.COUNT:
-            fmtstr = '{name} {count:.3f}'
+            fmtstr = self.name + " " + str(count)
         else:
             raise ValueError('invalid summary type %r' % self.summary_type)
         
-        return fmtstr.format(**self.__dict__)
+        return fmtstr # fmtstr.format_map({'name': self.name, 'avg': avg, 'sum': sum, 'count': self.count})             
 
 
 class ProgressMeter(object):

@@ -28,3 +28,6 @@ class TopK:
                 correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
                 res.append(correct_k.mul_(100.0 / batch_size))
             return res
+
+    def name(self):
+        return "/".join([f"Acc@{i}" for i in self._topk])

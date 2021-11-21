@@ -76,7 +76,7 @@ def get_loss(output, batch, loss_fn):
     return loss_fn(output, target)
 
 def default_metrics_fn():
-    return metrics.accuracy(topk=(1,))
+    return metrics.accuracy(topk=(1,5))
 
 def get_metrics(output, target, metrics_fn):
     return metrics_fn(output, target)
