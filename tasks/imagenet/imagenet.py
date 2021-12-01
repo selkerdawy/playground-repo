@@ -1,4 +1,5 @@
 import argparse
+
 import json
 import os
 
@@ -32,12 +33,14 @@ validation_transforms = transforms.Compose([
 
 preprocess = validation_transforms
 
+
 def train_dataset(data_dir):
     train_dir = os.path.join(data_dir, 'train')
     return datasets.ImageFolder(
         train_dir,
         train_transforms,
     )
+
 
 def validation_dataset(data_dir):
     val_dir = os.path.join(data_dir, 'val')
@@ -52,7 +55,7 @@ def default_epochs():
 def default_initial_lr():
     return 0.1
 
-def default_lr_scheduler(optimizer, start_epoch):
+def default_lr_scheduler(optimizer, num_epochs, steps_per_epoch, start_epoch=0):
     return torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, last_epoch=start_epoch - 1)
 
 def default_optimizer(model, lr, momentum, weight_decay):
@@ -60,5 +63,40 @@ def default_optimizer(model, lr, momentum, weight_decay):
                             momentum=momentum,
                             weight_decay=weight_decay)
 
-class_idx = json.load(open("imagenet_class_index.json"))
+def to_device(batch, device, gpu_id):
+    (images, target) = batch
+    if gpu_id is not None:
+        images = images.cuda(gpu_id, non_blocking=True)
+    if device.startswith("cuda"):
+        target = target.cuda(gpu_id, non_blocking=True)
+    return (images, target)
+
+def get_input(batch):
+    (images, _) = batch
+    return images, {}
+
+def get_target(batch):
+    (_, target) = batch
+    return target
+
+def default_loss_fn():
+    return torch.nn.CrossEntropyLoss()
+
+def get_loss(output, batch, loss_fn):
+    (_, target) = batch
+    return loss_fn(output, target)
+
+def default_metrics():
+    return topk(1,)
+
+def get_metrics(output, target, **kwargs):
+    metrics_dict = dict()
+    if "topk" in kwargs:
+        acc1, acc5 = metrics.accuracy(output, target, kwargs["topk"])
+        metrics_dict["acc1"] = acc1
+        metrics_dict["acc5"] = acc5
+    return metrics_dict
+
+class_index_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "imagenet_class_index.json")
+class_idx = json.load(open(class_index_path))
 idx2label = [class_idx[str(k)][1] for k in range(len(class_idx))]

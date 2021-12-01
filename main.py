@@ -13,6 +13,8 @@ from contextlib import redirect_stdout
 import distutils
 import distutils.util
 import json
+import importlib
+from enum import Enum
 
 import torch
 import torch.nn as nn
@@ -26,21 +28,14 @@ import torch.utils.data.distributed
 from torch.autograd import Variable
 
 from convert import convert, register_forward_hook
-from conversions import convup, apot, strideout, haq, deepshift
-from conversions.tensor_decomposition import tensor_decompositions
-from conversions.deepshift import convert_to_shift
-import imagenet, cifar10, mnist
 
-model_names_choices = list(set(imagenet.model_names) | set(cifar10.model_names) | set(mnist.model_names))
 
 parser = argparse.ArgumentParser(description='Effect of stride testing on Imagenet')
-parser.add_argument('--task', default='imagenet', choices=['imagenet', 'cifar10', 'mnist'], 
+parser.add_argument('--task', default='cifar10', choices=['imagenet', 'cifar10', 'mnist', 'imdb'], # todo: make this generic
                     help='dataset to train/evaluate on and to determine the architecture variant')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=model_names_choices,
-                    help='model architecture: ' +
-                        ' | '.join(model_names_choices) +
-                        ' (default: resnet18)')
+                    # todo: check if model belongs to task, OR is on torchhub/huggingface/timm, OR is a path
+                    help='model architecture (default: resnet18)')
 
 parser.add_argument('--apot', default=None, type=json.loads, help='convert conv2d to APoT quantized convolution, pass argument as dict of arguments')
 parser.add_argument('--deepshift', default=None, type=json.loads, help='convert conv2d to DeepShift-PS quantized convolution, pass argument as dict of arguments')
@@ -56,20 +51,20 @@ parser.add_argument('--cp-decompose', default=None, type=json.loads, help='apply
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
 
-parser.add_argument('--scale-input', default=None, type=json.loads, help='scale the input images, pass argument as dict of arguments')
+parser.add_argument('--scale-input', default=None, type=json.loads, help='scale the input samples, pass argument as dict of arguments')
 
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
 
 parser.add_argument('--conversion-epoch-start', default=0, type=int, help='first epoch to apply conversion to')
-parser.add_argument('--conversion-epoch-end', default=0, type=int, help='last epoch to apply conversion to')
-parser.add_argument('--conversion-epoch-step', default=0, type=int, help='epochs to skip when applying conversion')
+parser.add_argument('--conversion-epoch-end', default=-1, type=int, help='last epoch to apply conversion to')
+parser.add_argument('--conversion-epoch-step', default=1, type=int, help='epochs to skip when applying conversion')
 # TODO: make --conversion-epochs be mutually exclusive the --conversion-epoch-start/end/step
 parser.add_argument('--conversion-epochs', default=None, type=int, nargs='+', help='custom list of epochs to apply conversion to')
 
 # TODO: make --image and --data mutually exclusive
 parser.add_argument('-i', '--image', help='path to image')
-parser.add_argument('--data-dir', default='~/pytorch_datasets', metavar='DIR',
+parser.add_argument('--data-dir', default='~/datasets', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -126,8 +121,9 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'multi node data parallel training')
 parser.add_argument('--dump-mean', dest='dump_mean', action='store_true',
                     help='log mean of each layer')
+#todo: add dry-run argument
 
-def image_loader(image_name, device="cpu", preprocess=imagenet.preprocess):
+def image_loader(image_name, preprocess, device="cpu"):
     """load image, returns cuda tensor"""
     image = Image.open(image_name)
     image = preprocess(image).float().unsqueeze(0) #unsqueeze to add dimension for batch size 1
@@ -176,7 +172,8 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
 
-    task = eval(args.task)
+    # only import the task required
+    task = importlib.import_module(f"tasks.{args.task}")
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -194,6 +191,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
+        # todo: pretrained could be name of weights, e.g., bert-case, bert-uncase, etc.
         model = task.models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
@@ -205,29 +203,40 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # apply conversions
     if args.svd_decompose:
-        model, _ = convert(model, torch.nn.Linear, tensor_decompositions.svd_decompose_linear, index_start=args.layer_start, index_end=args.layer_end, **args.svd_decompose)
+        importlib.import_module(f"conversions.tensor_decomposition")
+        model, _ = convert(model, torch.nn.Linear, conversions.tensor_decomposition.svd_decompose_linear, index_start=args.layer_start, index_end=args.layer_end, **args.svd_decompose)
     if args.channel_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.channel_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.channel_decompose)
+        importlib.import_module(f"conversions.tensor_decomposition")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.tensor_decomposition.channel_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.channel_decompose)
     if args.spatial_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.spatial_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.spatial_decompose)
+        importlib.import_module(f"conversions.tensor_decomposition")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.tensor_decomposition.spatial_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.spatial_decompose)
     if args.depthwise_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.depthwise_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.depthwise_decompose)
+        importlib.import_module(f"conversions.tensor_decomposition")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.tensor_decomposition.depthwise_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.depthwise_decompose)
     if args.tucker_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.tucker_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.tucker_decompose)
+        importlib.import_module(f"conversions.tensor_decomposition")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.tensor_decomposition.tucker_decompose_conv, index_start=args.layer_start, index_end=args.layer_end, **args.tucker_decompose)
     if args.cp_decompose:
-        model, _ = convert(model, torch.nn.Conv2d, tensor_decompositions.cp_decompose_conv_other, index_start=args.layer_start, index_end=args.layer_end, **args.cp_decompose)
+        importlib.import_module(f"conversions.tensor_decomposition")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.tensor_decomposition.cp_decompose_conv_other, index_start=args.layer_start, index_end=args.layer_end, **args.cp_decompose)
 
     if args.apot:
-        model, _ = convert(model, torch.nn.Conv2d, apot.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
+        importlib.import_module(f"conversions.apot")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.apot.convert, index_start=args.layer_start, index_end=args.layer_end, **args.apot)
     if args.haq:
-        model, _ = convert(model, (torch.nn.Conv2d, torch.nn.Linear), haq.convert, index_start=args.layer_start, index_end=args.layer_end, **args.haq)
+        importlib.import_module(f"conversions.haq")
+        model, _ = convert(model, (torch.nn.Conv2d, torch.nn.Linear), conversions.haq.convert, index_start=args.layer_start, index_end=args.layer_end, **args.haq)
     if args.deepshift:
-        model, _ = convert(model, (torch.nn.Conv2d, torch.nn.Linear), deepshift.convert_to_shift.convert, index_start=args.layer_start, index_end=args.layer_end, **args.deepshift)
+        importlib.import_module(f"conversions.deepshift")
+        model, _ = convert(model, (torch.nn.Conv2d, torch.nn.Linear), conversions.deepshift.convert_to_shift.convert, index_start=args.layer_start, index_end=args.layer_end, **args.deepshift)
 
     if args.convup:
-        model, _ = convert(model, torch.nn.Conv2d, convup.ConvUp, index_start=args.layer_start, index_end=args.layer_end, **args.convup)
+        importlib.import_module(f"conversions.convup")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.convup.ConvUp, index_start=args.layer_start, index_end=args.layer_end, **args.convup)
     if args.strideout:
-        model, _ = convert(model, torch.nn.Conv2d, strideout.StrideOut, index_start=args.layer_start, index_end=args.layer_end, **args.strideout)
+        importlib.import_module(f"conversions.strideout")
+        model, _ = convert(model, torch.nn.Conv2d, conversions.strideout.StrideOut, index_start=args.layer_start, index_end=args.layer_end, **args.strideout)
 
     if args.dump_mean:
         register_forward_hook(model, print_mean)
@@ -265,15 +274,57 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             model = torch.nn.DataParallel(model).cuda()
 
+    print(model)
+    print("\n press any key to continue")
+    #input()
+
+    # todo: generalize device if gpu id(s) is passed
+    device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
+
+    if args.image:
+        image = image_loader(args.image, task.preprocess, device) #Image filename
+
+        model.eval()
+        probabilities = model(image)
+        classid = probabilities.max(1)[1].item()
+        label = task.idx2label[classid]
+        print("Prediction is %s with logit %.3f" %(label, probabilities[0][classid]))
+        return
+
+    # Data loading code
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    else:
+        train_sampler = None
+
+    train_loader = torch.utils.data.DataLoader(
+        task.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+
+    val_loader = torch.utils.data.DataLoader(
+        task.validation_dataset(args.data_dir),
+        batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=True)
+
+    # training hyperparams
+    if args.epochs is not None:
+        epochs = args.epochs
+    else:
+        epochs = task.default_epochs()
+
     if args.lr is not None:
         initial_lr = args.lr
     else:
         initial_lr = task.default_initial_lr()
 
-    # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss()
+    # define loss function and optimizer
+    # todo: add loss_fn to args
+    loss_fn = task.default_loss_fn()
     if not args.cpu:
-        criterion = criterion.cuda(args.gpu) 
+        loss_fn = loss_fn.cuda(args.gpu) 
+
+    # todo: add metrics_fn to args
+    metrics_fn = task.default_metrics_fn()
 
     optimizer = task.default_optimizer(model, initial_lr, args.momentum, args.weight_decay)
 
@@ -286,7 +337,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.lr_step_size is not None:
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.gamma)
     else:
-        lr_scheduler = task.default_lr_scheduler(optimizer, args.start_epoch)
+        lr_scheduler = task.default_lr_scheduler(optimizer, epochs, len(train_loader), args.start_epoch)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -312,107 +363,73 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    print(model)
-    print("\n press any key to continue")
-    input()
-
-    if args.image:
-        device = "cpu" if args.cpu or not torch.cuda.is_available() else "cuda"
-        image = image_loader(args.image, device, task.preprocess) #Image filename
-
-        model.eval()
-        probabilities = model(image)
-        classid = probabilities.max(1)[1].item()
-        label = task.idx2label[classid]
-        print("Prediction is %s with logit %.3f" %(label, probabilities[0][classid]))
+    if args.evaluate:
+        validate(val_loader, model, loss_fn, metrics_fn, args)
     else:
-        # Data loading code
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
+        for epoch in range(args.start_epoch, epochs):
 
-        train_loader = torch.utils.data.DataLoader(
-            task.train_dataset(args.data_dir), batch_size=args.batch_size, shuffle=(train_sampler is None),
-            num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+            if args.distributed:
+                train_sampler.set_epoch(epoch)
 
-        val_loader = torch.utils.data.DataLoader(
-            task.validation_dataset(args.data_dir),
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
+            # train for one epoch
+            train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, device, args)
 
-        if args.epochs is not None:
-            epochs = args.epochs
-        else:
-            epochs = task.default_epochs()
+            lr_scheduler.step()
 
-        if args.evaluate:
-            validate(val_loader, model, criterion, args)
-        else:
-            for epoch in range(args.start_epoch, epochs):
-                if args.distributed:
-                    train_sampler.set_epoch(epoch)
+            # evaluate on validation set
+            metrics = validate(val_loader, task, model, loss_fn, metrics_fn, args)
 
-                # train for one epoch
-                train(train_loader, model, criterion, optimizer, epoch, args)
+            # remember best acc and save checkpoint
+            acc1 = metrics[0]
+            is_best = acc1 > best_acc1
+            best_acc1 = max(acc1, best_acc1)
 
-                lr_scheduler.step()
+            if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                    and args.rank % ngpus_per_node == 0):
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'arch': args.arch,
+                    'state_dict': model.state_dict(),
+                    'best_acc1': best_acc1,
+                    'optimizer' : optimizer.state_dict(),
+                }, is_best)
 
-                # evaluate on validation set
-                acc1 = validate(val_loader, model, criterion, args)
-
-                # remember best acc@1 and save checkpoint
-                is_best = acc1 > best_acc1
-                best_acc1 = max(acc1, best_acc1)
-
-                if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                        and args.rank % ngpus_per_node == 0):
-                    save_checkpoint({
-                        'epoch': epoch + 1,
-                        'arch': args.arch,
-                        'state_dict': model.state_dict(),
-                        'best_acc1': best_acc1,
-                        'optimizer' : optimizer.state_dict(),
-                    }, is_best)
-
-def train(train_loader, model, criterion, optimizer, epoch, args):
-    batch_time = AverageMeter('Time', ':6.3f')
+def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, device, args):
+    batch_times = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+    metrics = AverageMeter(metrics_fn.name(), ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, data_time, losses, top1, top5],
+        [batch_times, data_time, losses, metrics],
         prefix="Epoch: [{}]".format(epoch))
-
     # switch to train mode
     model.train()
-
     end = time.time()
-    for i, (images, target) in enumerate(train_loader):
+    for i, batch in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        if torch.cuda.is_available():
-            target = target.cuda(args.gpu, non_blocking=True)
-
+        batch = task.to_device(batch, device, args.gpu)
         # optional: scale input
+        # todo: clean this up and make it more generic
+        # todo: perhaps add args.process_input or add this as a transformation
         if args.scale_input:
             if epoch in args.conversion_epochs:
+                (images, _) = batch
                 images = torch.nn.functional.interpolate(images, **args.scale_input)
 
         # compute output
-        output = model(images)
-        loss = criterion(output, target)
+        input, kwargs = task.get_input(batch)
+        output = model(input, **kwargs)
+        loss = task.get_loss(output, batch, loss_fn)
 
         # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), images.size(0))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
+        target = task.get_target(batch)
+        #todo: add argument for metrics
+        metric = task.get_metrics(output, target, metrics_fn)
+        metric = [m.item() for m in metric]
+        losses.update(loss.item(), input.size(0))
+        metrics.update(metric, input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -420,21 +437,20 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         optimizer.step()
 
         # measure elapsed time
-        batch_time.update(time.time() - end)
+        batch_times.update(time.time() - end)
         end = time.time()
 
         if i % args.print_freq == 0:
             progress.display(i)
 
 
-def validate(val_loader, model, criterion, args):
-    batch_time = AverageMeter('Time', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+def validate(val_loader, task, model, loss_fn, metrics_fn, args):
+    batch_times = AverageMeter('Time', ':6.3f', Summary.NONE)
+    losses = AverageMeter('Loss', ':.4e', Summary.NONE)
+    metrics = AverageMeter(metrics_fn.name(), ':6.2f', Summary.AVERAGE)
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses, top1, top5],
+        [batch_times, losses, metrics],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -442,34 +458,37 @@ def validate(val_loader, model, criterion, args):
 
     with torch.no_grad():
         end = time.time()
-        for i, (images, target) in enumerate(val_loader):
+        for i, batch in enumerate(val_loader):
+            #todo: make this generic for different tasks
+            (samples, target) = batch
             if args.gpu is not None and not args.cpu:
-                images = images.cuda(args.gpu, non_blocking=True)
+                samples = samples.cuda(args.gpu, non_blocking=True)
             if torch.cuda.is_available() and not args.cpu:
                 target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-            output = model(images)
-            loss = criterion(output, target)
+            input, kwargs = task.get_input(batch)
+            output = model(input, **kwargs)
+            loss = task.get_loss(output, batch, loss_fn)
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            losses.update(loss.item(), images.size(0))
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
+            target = task.get_target(batch)
+            #todo: add argument for metrics
+            metric = task.get_metrics(output, target, metrics_fn)
+            metric = [m.item() for m in metric]
+            losses.update(loss.item(), samples.size(0))
+            metrics.update(metric, samples.size(0))
 
             # measure elapsed time
-            batch_time.update(time.time() - end)
+            batch_times.update(time.time() - end)
             end = time.time()
 
             if i % args.print_freq == 0:
                 progress.display(i)
 
-        # TODO: this should also be done with the ProgressMeter
-        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
+        progress.display_summary()
 
-    return top1.avg
+    return metric
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
@@ -477,12 +496,27 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     if is_best:
         shutil.copyfile(filename, 'model_best.pth.tar')
 
+class Summary(Enum):
+    NONE = 0
+    AVERAGE = 1
+    SUM = 2
+    COUNT = 3
+
+def ndstr(val, fmt =':f', sep='/'):
+    if isinstance(val, np.ndarray):
+        fmt = '{' + fmt + '}'
+        # we add [1:-1] at the end to remove the square brackets at the beginning and end
+        return np.array2string(val, formatter={'float_kind':fmt.format}, separator=sep)[1:-1]
+    else:
+        fmtstr = '{val' + fmt + '}'
+        return fmtstr.format(val=val)
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
-    def __init__(self, name, fmt=':f'):
+    def __init__(self, name, fmt=':f', summary_type=Summary.AVERAGE):
         self.name = name
         self.fmt = fmt
+        self.summary_type = summary_type
         self.reset()
 
     def reset(self):
@@ -492,14 +526,29 @@ class AverageMeter(object):
         self.count = 0
 
     def update(self, val, n=1):
+        if isinstance(val, list):
+            val = np.asarray(val)
         self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
 
     def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
+        return self.name + " " + ndstr(self.val, self.fmt) + " (" + ndstr(self.avg, self.fmt) + ")"
+
+    def summary(self):
+        if self.summary_type is Summary.NONE:
+            fmtstr = ''
+        elif self.summary_type is Summary.AVERAGE:
+            fmtstr = self.name + " " + ndstr(self.avg, self.fmt)
+        elif self.summary_type is Summary.SUM:
+            fmtstr = self.name + " "  + ndstr(self.sum, self.fmt)
+        elif self.summary_type is Summary.COUNT:
+            fmtstr = self.name + " " + ndstr(self.count, self.fmt)
+        else:
+            raise ValueError('invalid summary type %r' % self.summary_type)
+        
+        return fmtstr
 
 
 class ProgressMeter(object):
@@ -513,27 +562,15 @@ class ProgressMeter(object):
         entries += [str(meter) for meter in self.meters]
         print('\t'.join(entries))
 
+    def display_summary(self):
+        entries = [" *"]
+        entries += [meter.summary() for meter in self.meters]
+        print(' '.join(entries))
+
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,7 @@
+torch
+torchvision
+transformers # huggingface
+datasets # huggingface
+progress
+sklearn
+tensorly
