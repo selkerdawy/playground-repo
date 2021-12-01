@@ -51,7 +51,7 @@ parser.add_argument('--cp-decompose', default=None, type=json.loads, help='apply
 parser.add_argument('--convup', default=None, type=json.loads, help='convert conv2d to convup, pass argument as dict of arguments')
 parser.add_argument('--strideout', default=None, type=json.loads, help='add strideout to convolution, pass argument as dict of arguments')
 
-parser.add_argument('--scale-input', default=None, type=json.loads, help='scale the input images, pass argument as dict of arguments')
+parser.add_argument('--scale-input', default=None, type=json.loads, help='scale the input samples, pass argument as dict of arguments')
 
 parser.add_argument('--layer-start', default=0, type=int, help='index of layer to start the conversion')
 parser.add_argument('--layer-end', default=-1, type=int, help='index of layer to stop the conversion')
@@ -460,9 +460,9 @@ def validate(val_loader, task, model, loss_fn, metrics_fn, args):
         end = time.time()
         for i, batch in enumerate(val_loader):
             #todo: make this generic for different tasks
-            (images, target) = batch
+            (samples, target) = batch
             if args.gpu is not None and not args.cpu:
-                images = images.cuda(args.gpu, non_blocking=True)
+                samples = samples.cuda(args.gpu, non_blocking=True)
             if torch.cuda.is_available() and not args.cpu:
                 target = target.cuda(args.gpu, non_blocking=True)
 
@@ -476,8 +476,8 @@ def validate(val_loader, task, model, loss_fn, metrics_fn, args):
             #todo: add argument for metrics
             metric = task.get_metrics(output, target, metrics_fn)
             metric = [m.item() for m in metric]
-            losses.update(loss.item(), images.size(0))
-            metrics.update(metric, images.size(0))
+            losses.update(loss.item(), samples.size(0))
+            metrics.update(metric, samples.size(0))
 
             # measure elapsed time
             batch_times.update(time.time() - end)
