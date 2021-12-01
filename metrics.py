@@ -9,7 +9,10 @@ def accuracy(topk=(1,)):
 
 class TopK:
     def __init__(self, topk=(1,)):
-        self._topk = topk
+        if isinstance(topk, (list, tuple)):
+            self._topk = topk
+        else:
+            self._topk = (topk, )
 
     # TODO: make the class call a function, so we don't have to replace topk with self._topk
     # TODO: we want users to provide a function to call straight away
@@ -29,5 +32,6 @@ class TopK:
                 res.append(correct_k.mul_(100.0 / batch_size))
             return res
 
+    # todo: overwrite __name__(self)
     def name(self):
         return "/".join([f"Acc@{i}" for i in self._topk])

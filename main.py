@@ -398,8 +398,7 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
     batch_times = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
-    metrics = AverageMeter('Acc@1 / Acc@5', ':6.2f')
-    #top5 = AverageMeter('Acc@5', ':6.2f')
+    metrics = AverageMeter(metrics_fn.name(), ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
         [batch_times, data_time, losses, metrics],
@@ -418,7 +417,6 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
             if epoch in args.conversion_epochs:
                 (images, _) = batch
                 images = torch.nn.functional.interpolate(images, **args.scale_input)
-        break
 
         # compute output
         input, kwargs = task.get_input(batch)
@@ -427,12 +425,11 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
 
         # measure accuracy and record loss
         target = task.get_target(batch)
+        #todo: add argument for metrics
         metric = task.get_metrics(output, target, metrics_fn)
-        #[acc1, acc5] = metrics
-        #[acc1] = metrics
+        metric = [m.item() for m in metric]
         losses.update(loss.item(), input.size(0))
-        top1.update(metric, input.size(0))
-        #top5.update(acc5[0], input.size(0))
+        metrics.update(metric, input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -448,11 +445,9 @@ def train(train_loader, task, model, loss_fn, metrics_fn, optimizer, epoch, devi
 
 
 def validate(val_loader, task, model, loss_fn, metrics_fn, args):
-    print("metrics_fn.name(): ", metrics_fn.name())
     batch_times = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
     metrics = AverageMeter(metrics_fn.name(), ':6.2f', Summary.AVERAGE)
-    #top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
     progress = ProgressMeter(
         len(val_loader),
         [batch_times, losses, metrics],
@@ -507,6 +502,15 @@ class Summary(Enum):
     SUM = 2
     COUNT = 3
 
+def ndstr(val, fmt =':f', sep='/'):
+    if isinstance(val, np.ndarray):
+        fmt = '{' + fmt + '}'
+        # we add [1:-1] at the end to remove the square brackets at the beginning and end
+        return np.array2string(val, formatter={'float_kind':fmt.format}, separator=sep)[1:-1]
+    else:
+        fmtstr = '{val' + fmt + '}'
+        return fmtstr.format(val=val)
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self, name, fmt=':f', summary_type=Summary.AVERAGE):
@@ -530,28 +534,21 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
     def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        val = list(self.val) if isinstance(self.val, np.ndarray) else self.val
-        avg = list(self.avg) if isinstance(self.avg, np.ndarray) else self.avg
-        #return fmtstr.format({'val': val, 'avg': avg, 'name1': self.name})
-        return f'{self.name} {val} ({avg})'
+        return self.name + " " + ndstr(self.val, self.fmt) + " (" + ndstr(self.avg, self.fmt) + ")"
 
     def summary(self):
-        fmtstr = ''
-        avg = list(self.avg) if isinstance(self.avg, np.ndarray) else self.avg
-        sum = list(self.sum) if isinstance(self.sum, np.ndarray) else self.sum
         if self.summary_type is Summary.NONE:
             fmtstr = ''
         elif self.summary_type is Summary.AVERAGE:
-            fmtstr = self.name + " " + str(avg)
+            fmtstr = self.name + " " + ndstr(self.avg, self.fmt)
         elif self.summary_type is Summary.SUM:
-            fmtstr = self.name + " "  + str(sum)
+            fmtstr = self.name + " "  + ndstr(self.sum, self.fmt)
         elif self.summary_type is Summary.COUNT:
-            fmtstr = self.name + " " + str(count)
+            fmtstr = self.name + " " + ndstr(self.count, self.fmt)
         else:
             raise ValueError('invalid summary type %r' % self.summary_type)
         
-        return fmtstr # fmtstr.format_map({'name': self.name, 'avg': avg, 'sum': sum, 'count': self.count})             
+        return fmtstr
 
 
 class ProgressMeter(object):
